@@ -1,0 +1,3976 @@
+---
+title: "KMdistance"
+output: html_document
+date: "2025-10-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+```{r}
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(tidytext)
+library(tidyr)
+library(lubridate)
+library(forcats)
+library(MASS)
+library(gt)
+```
+
+
+```{r}
+clintrial_unique <- read.csv("C:\\Users\\parya\\ScienceandIndustry Dropbox\\Payal Arya\\RESEARCH DOTD Clinical Trials\\Working\\Payal Arya\\clinical_trial_preapproval\\Clin_trials_preapp_unique_03252024.csv")
+```
+
+
+```{r}
+
+clintrial_unique <- clintrial_unique %>%
+  mutate(New_Phase = gsub(".*;\\s*([^;]+)$", "\\1", Phase)) %>%
+  mutate(New_Phase = gsub("Phase(\\d+);Phase(\\d+)", "Phase\\2", New_Phase))
+
+clintrial_unique <- clintrial_unique %>%
+  mutate(Orphan_0_1 = coalesce(Orphan.x,Orphan.y),
+         Accelerated_0_1= coalesce(Accelerated.x,Accelerated.y),
+         Priority_0_1 = coalesce(Priority.x,Priority.y),
+         FastTrack_0_1 = coalesce(FastTrack.x,FastTrack.y)) %>%
+         dplyr::select(-Orphan.x, -Orphan.y, -Accelerated.x,-Accelerated.y,-Priority.x,-Priority.y
+                ,-FastTrack.x,-FastTrack.y)
+
+
+
+Uniquetrials <- clintrial_unique %>%
+  filter(!str_detect(Target_PharmaProjects, "coagulation")) #filtering trials for coagulation factors
+
+```
+
+
+```{r}
+
+```
+
+```{r}
+Uniquetrials$New_Phase <- factor(Uniquetrials$New_Phase,levels = c("Early Phase 1","Phase 1", "Phase 2", "Phase 3") )
+Uniquetrials$Accelerated_0_1 <-factor(Uniquetrials$Accelerated_0_1,levels = c("0", "1"))
+Uniquetrials$WHOIndication <- factor(Uniquetrials$WHOIndication,levels = c("Cardiovascular diseases","Diabetes mellitus","Digestive diseases","Endocrine, blood, immune disorders", "Genitourinary diseases","Infectious and parasitic diseases","Mental and substance use disorders", "Musculoskeletal system" , "Neoplasms", "Neurological conditions", "Respiratory infection and diseases", "Sense organ diseases", "Skin diseases", "Other") )
+Uniquetrials$NCE_1_Biologic_0 <- factor(Uniquetrials$NCE_1_Biologic_0,levels = c("0", "1") )
+
+```
+
+```{r}
+#how many trials are are in the datasets before 2010
+
+trials_before_2010 <- Uniquetrials_filtered%>% filter(StartDate < as.Date("2010-01-01"))
+
+# Count the number of trials
+count_trials_before_2010 <- nrow(trials_before_2010)
+print(count_trials_before_2010) # 2977 trials before 2010
+
+
+# Plot the spread of start dates
+trials_by_year_histogram <- ggplot(trials_before_2010, aes(x = StartDate)) +
+  geom_histogram(binwidth = 365, fill = "blue", color = "black") +
+  labs(title = "Distribution of Trial Start Dates Before 2010",
+       x = "Start Date",
+       y = "Count of Trials") +
+  theme_minimal()+
+  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 26),
+    legend.position = "right",
+    panel.background = element_blank()  # Remove background panel
+  )
+
+ggsave("trials_by_year_histogram.jpg", trials_by_year_histogram, width =14,height =10,dpi =300)
+#What is the range of date for trials before 2010
+
+# Extract the minimum and maximum dates
+range_dates_before_2010 <- range(trials_before_2010$StartDate)
+
+# Print the range of dates
+print(range_dates_before_2010)
+
+#type of trials before 2010
+count_trials_by_phase_before_2010 <- trials_before_2010 %>% 
+  group_by(New_Phase) %>% 
+  summarize(count = n())
+
+# Filter trials before 2010
+trials_before_2010 <- Uniquetrials_filtered %>% 
+  filter(StartDate < as.Date("2010-01-01"))
+
+# Plot the spread of start dates by phase
+trials_by_year_phase_histogram <- ggplot(trials_before_2010, aes(x = StartDate)) +
+  geom_histogram(binwidth = 365, fill = "blue", color = "black") +
+  facet_wrap(~ New_Phase) +
+  labs(title = "Distribution of Trial Start Dates Before 2010 by Phase",
+       x = "Start Date",
+       y = "Count of Trials") +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 20),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 30),
+    axis.text.y = element_text(size = 28),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 24),
+    legend.position = "right",
+    panel.background = element_blank(), # Remove background panel
+    strip.text = element_text(size = 28)
+  )
+
+# Print the plot
+print(trials_by_year_phase_histogram)
+ggsave("trials_by_year_phase_histogram.jpg", trials_by_year_phase_histogram, width =24,height = 14)
+#how many drug approvals between 2010-2015 and 2016-2020
+ # Filter unique drug approvals between 2010 and 2015
+drugs_2010_2015 <- Uniquetrials %>%
+  filter(ApprovalDate >= "2010-01-01" & ApprovalDate <= "2015-12-31") %>%
+  distinct(drugid)
+
+# Filter unique drug approvals between 2016 and 2020
+drugs_2016_2020 <- Uniquetrials %>%
+  filter(ApprovalDate >= "2016-01-01" & ApprovalDate <= "2020-12-31") %>%
+  distinct(drugid)
+
+# Count the number of unique drugs in each period
+count_drugs_2010_2015 <- nrow(drugs_2010_2015)
+count_drugs_2016_2020 <- nrow(drugs_2016_2020)
+
+# Print the counts
+print(paste("Number of unique drug approvals between 2010-2015:", count_drugs_2010_2015)) #193
+print(paste("Number of unique drug approvals between 2016-2020:", count_drugs_2016_2020)) #165 
+
+
+#NUMBER OF TRIALS PER DRUG APPROVED IN EACH YEAR
+#filter trials that complete after approval date
+filtered <- Uniquetrials %>%
+  filter(!ImputedCompletionDate > ApprovalDate)
+# Boxplot to show the range of start dates for drugs approved in each year
+startdate_boxplot = ggplot(filtered, aes(x = as.factor(ApprovalYear), y = StartDate)) +
+  geom_boxplot() +
+  labs(
+    title = "Boxplot of Start Dates for Drugs Approved in Each Year",
+    x = "Approval Year",
+    y = "Start Date"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 26),
+    legend.position = "right",
+    panel.background = element_blank()  # Remove background panel
+  ) +
+  scale_y_date(date_labels = "%Y", date_breaks = "3 year")  # Ensure y-axis has date labels every year
+print(startdate_boxplot)
+# Summarize total trials for drugs approved in each year by phase
+summary_trials_per_year_phase <- filtered %>%
+  group_by(drugid,ApprovalYear, New_Phase) %>%
+  summarise(TotalTrials = n(), .groups = 'drop')
+# Perform Kruskal-Wallis test for each phase
+kruskal_results <- summary_trials_per_year_phase %>%
+  group_by(New_Phase) %>%
+  summarise(
+    p_value = kruskal.test(TotalTrials ~ as.factor(ApprovalYear))$p.value
+  )
+
+# Display the results
+print(kruskal_results)
+
+# Filter the data for Phase 1
+phase1_trials <- summary_trials_per_year_phase %>%
+  filter(New_Phase == "Phase 1")
+
+# Create the boxplot
+phase1_boxplot = ggplot(phase1_trials, aes(x = as.factor(ApprovalYear), y = TotalTrials)) +
+  geom_boxplot(color = "black") +
+  labs(
+    title = "Number of Trials for Phase 1 Across All Years",
+    x = "Approval Year",
+    y = "Total Trials"
+  ) +
+ # ylim(0,30)+
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 16),
+    axis.text.y = element_text(size = 14),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 14),
+    legend.position = "none",
+    panel.background = element_blank()  # Remove background panel
+  )
+print(phase1_boxplot)
+
+ggsave("Phase1_trials_drugid.jpg", phase1_boxplot, width =18,height =12,dpi =300)
+
+#summary of phase 1 trials for drugs approved every year
+summary_trials_per_year_phase <- filtered %>%
+  group_by(ApprovalYear, New_Phase) %>%
+  summarise(TotalTrials = n(), .groups = 'drop')
+Phase1_trials <- summary_trials_per_year_phase %>%
+  filter(New_Phase == "Phase 1")
+# Create the boxplot
+phase1_boxplot = ggplot(Phase1_trials, aes(x = as.factor(ApprovalYear), y = TotalTrials)) +
+  geom_boxplot(color = "black") +
+  labs(
+    title = "Number of Trials for Phase 1 Across All Years",
+    x = "Approval Year",
+    y = "Total Trials"
+  ) +
+ # ylim(0,30)+
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 16),
+    axis.text.y = element_text(size = 14),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 14),
+    legend.position = "none",
+    panel.background = element_blank()  # Remove background panel
+  )
+print(phase1_boxplot)
+
+# Display the summary
+print(summary_trials_per_year_phase)
+# Stacked bar plot to show total trials per year by phase
+ggplot(summary_trials_per_year_phase, aes(x = as.factor(ApprovalYear), y = TotalTrials, fill = New_Phase)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Total Trials for Drugs Approved in Each Year by Phase",
+    x = "Approval Year",
+    y = "Total Trials"
+  ) +
+  scale_fill_brewer(palette = "Set3") +  # Use a color palette for distinction between phases
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels for better readability
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12)
+  )
+
+
+# Boxplot to show the range of start dates for drugs approved in each year, colored by phase
+startdate_boxplot = ggplot(filtered, aes(x = as.factor(ApprovalYear), y = StartDate, fill = New_Phase)) +
+  geom_boxplot() +
+  labs(
+    title = "Boxplot of Start Dates for Drugs Approved in Each Year, by Phase",
+    x = "Approval Year",
+    y = "Start Date"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 16),
+    axis.text.y = element_text(size = 14),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 14),
+    legend.position = "right",
+    panel.background = element_blank()  # Remove background panel
+  ) +
+  scale_y_date(date_labels = "%Y", date_breaks = "3 year")  # Ensure y-axis has date labels every 3 years
+
+# Display the plot
+print(startdate_boxplot)
+
+#number of trials per drug aPPROVED IN EACH YEAR
+summary_trials_perdrug <- filtered%>%
+   group_by(drugid, ApprovalYear) %>%
+  summarise(Trialsperdrug = n(), .groups ='drop')
+
+drug_counts <- summary_trials_perdrug %>%
+  group_by(ApprovalYear) %>%
+  summarise(UniqueDrugs = n_distinct(drugid))
+
+p <- ggplot(summary_trials_perdrug, aes(x = factor(ApprovalYear), y = Trialsperdrug)) +
+  geom_boxplot(alpha = 0.2, outlier.shape =NA) +
+  geom_jitter(width = 0.2, alpha = 0.5, color = "black") +  # Add jittered points
+   geom_text(data = drug_counts, aes(x = factor(ApprovalYear), y = 75 + 1, label = UniqueDrugs), 
+            size = 6, hjust = 0.5) +  # Add unique drug counts above each boxplot
+  theme_minimal() + 
+  
+  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 26),
+    legend.position = "right",
+    panel.background = element_blank()  # Remove background panel
+  ) +
+  coord_cartesian(ylim = c(0, 80)) + 
+  labs(x = "Approval Year", y = "NCTIds per drug")
+print(p)
+
+# lets do a kruskal.test test to check if number of trials per drug are different if approved in different years
+res <- kruskal.test(summary_trials_perdrug$Trialsperdrug ~ summary_trials_perdrug$ApprovalYear)
+res
+
+ggsave("tiralsperdrugid_byapprovalyear_filtered.jpg", p, width = 12, height =8, dpi =300)
+summary_trials_perdrug <- Uniquetrials %>%
+   group_by(drugid, ApprovalYear) %>%
+  summarise(Trialsperdrug = n(), .groups ='drop')
+
+drug_counts <- summary_trials_perdrug %>%
+  group_by(ApprovalYear) %>%
+  summarise(UniqueDrugs = n_distinct(drugid))
+
+p <- ggplot(summary_trials_perdrug, aes(x = factor(ApprovalYear), y = Trialsperdrug)) +
+  geom_boxplot(alpha = 0.2, outlier.shape =NA) +
+  geom_jitter(width = 0.2, alpha = 0.5, color = "black") +  # Add jittered points
+   geom_text(data = drug_counts, aes(x = factor(ApprovalYear), y = 75 + 1, label = UniqueDrugs), 
+            size = 6, hjust = 0.5) +  # Add unique drug counts above each boxplot
+  theme_minimal() + 
+  theme_minimal() + 
+  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 26),
+    legend.position = "right",
+    panel.background = element_blank()  # Remove background panel
+  ) +
+  coord_cartesian(ylim = c(0, 80)) + 
+  labs(x = "Approval Year", y = "NCTIds per drug")
+print(p)
+res <- kruskal.test(summary_trials_perdrug$Trialsperdrug ~ summary_trials_perdrug$ApprovalYear)
+res
+
+ggsave("tiralsperdrugid_byapprovalyear.jpg", p, width = 12, height =8, dpi =300)
+
+
+
+trials_notcompleted <- Uniquetrials %>%
+  filter(ImputedCompletionDate > ApprovalDate)
+
+total_trials_by_year <- Uniquetrials %>%
+  group_by(ApprovalYear) %>%
+  summarize(TotalTrials = n_distinct(NCTId))
+notcompleted_by_year <- trials_notcompleted %>%
+  group_by(ApprovalYear) %>%
+  summarize(CountNotCompleted = n())
+
+overrepresented_by_year <- notcompleted_by_year %>%
+  left_join(total_trials_by_year, by = "ApprovalYear") %>%
+  mutate(ProportionNotCompleted = CountNotCompleted / TotalTrials)
+
+# Step 6: View the results
+print(overrepresented_by_year)
+summary_trials_perdrug <- trials_notcompleted %>%
+   group_by(drugid, ApprovalYear) %>%
+  summarise(Trialsperdrug = n(), .groups ='drop')
+
+drug_counts <- summary_trials_perdrug %>%
+  group_by(ApprovalYear) %>%
+  summarise(UniqueDrugs = n_distinct(drugid))
+p <- ggplot(summary_trials_perdrug, aes(x = factor(ApprovalYear), y = Trialsperdrug)) +
+  geom_boxplot(alpha = 0.2, outlier.shape =NA) +
+  geom_jitter(width = 0.2, alpha = 0.5, color = "black") +  # Add jittered points
+   geom_text(data = drug_counts, aes(x = factor(ApprovalYear), y = 75 + 1, label = UniqueDrugs), 
+            size = 6, hjust = 0.5) +  # Add unique drug counts above each boxplot
+  theme_minimal() + 
+  theme_minimal() + 
+  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 26),
+    legend.position = "right",
+    panel.background = element_blank()  # Remove background panel
+  ) +
+  coord_cartesian(ylim = c(0, 80)) + 
+  labs(x = "Approval Year", y = "NCTIds per drug")
+print(p)
+```
+
+
+
+```{r num_Trials aby therapeutic class}
+therapeutic_count <- Uniquetrials %>%
+  filter(!WHOIndication=="Other")%>%
+  group_by(WHOIndication) %>%
+  summarise(num_trials =n(),
+            unique_drugs = n_distinct(drugid))
+
+# Create the stacked bar chart with text labels inside stacks
+therapeutic_count_stcaked_plot <- therapeutic_count %>%
+  ggplot(aes(x = reorder(WHOIndication, unique_drugs), y =   unique_drugs)) +
+  geom_bar(stat = "identity", position = "stack",fill = "lightblue") +
+  geom_text(
+    aes(
+      label = ifelse(unique_drugs >= 5, unique_drugs, ""),
+      y = unique_drugs / 2          # label inside the bar (centered)
+    ),  
+    size = 12,  
+    color = "black"  
+  ) +
+  labs(
+    title = "Unique Number of Drugs by WHO Indication ",
+    x = "Indication",
+    y = "Number of Unique Drugs"
+    
+  ) +
+  theme_minimal() +
+  theme(axis.text.y = element_text( size = 36),
+    axis.text.x = element_text(angle = 75, hjust = 1, size = 28),  # Rotate x-axis labels for readability
+    axis.title = element_text(size = 34),
+    title = element_text(size = 20),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.title = element_text(size = 22),
+    legend.text = element_text(size = 22)
+  )
+ggsave("therapeutic_count_stacked_plot.jpg",therapeutic_count_stcaked_plot,width =22,height=18,dpi =300)
+```
+
+```{r}
+
+library(dplyr)
+# --- 0) Add flag to Uniquetrials ---
+u_one  <- Uniquetrials[!duplicated(Uniquetrials$NCTId), ]
+dm_one <- df_datemodified[!duplicated(df_datemodified$NCTId), ]
+
+# identify overlapping columns
+overlaps <- setdiff(intersect(names(u_one), names(dm_one)), "NCTId")
+
+# 1) Left-merge: keep all Uniquetrials rows
+tmp <- merge(Uniquetrials, dm_one, by = "NCTId", all.x = TRUE,
+             suffixes = c("_u", "_dm"), sort = FALSE)
+
+# 2) For overlapping columns, prefer df_datemodified values when present
+for (nm in overlaps) {
+  xu <- paste0(nm, "_u")
+  yd <- paste0(nm, "_dm")
+
+  if (xu %in% names(tmp) && yd %in% names(tmp)) {
+    # align types
+    if (is.numeric(tmp[[yd]]) && is.character(tmp[[xu]])) suppressWarnings(tmp[[xu]] <- as.numeric(tmp[[xu]]))
+    if (is.character(tmp[[yd]]) && is.numeric(tmp[[xu]]))  suppressWarnings(tmp[[yd]] <- as.character(tmp[[yd]]))
+
+    tmp[[nm]] <- dplyr::coalesce(tmp[[yd]], tmp[[xu]])
+  }
+}
+
+# 3) Drop the suffixed duplicates and keep clean columns
+drop_cols <- c(paste0(overlaps, "_u"), paste0(overlaps, "_dm"))
+df_final <- tmp %>% dplyr::select(-any_of(drop_cols))
+
+# 4) Drop Phase 2 and 3 trials with missing Indication_Type
+before_n <- nrow(df_final)
+
+df_final <- df_final %>%
+  filter(!(New_Phase %in% c("Phase 2", "Phase 3") & is.na(Indication_Type)))
+
+removed_n <- before_n - nrow(df_final)
+message("Removed ", removed_n, " Phase 2/3 trials without Indication_Type.")
+
+# 5) Sanity check
+stopifnot(nrow(df_final) == nrow(u_one))   # equals n_distinct(Uniquetrials$NCTId)
+message("Final rows: ", nrow(df_final))
+str(df_final)
+str(df_datemodified)
+
+write.csv(clintrial_unique, "Clintrial_unique.csv",row.names = FALSE)
+
+unique(Uniquetrials$New_Phase)
+```
+
+
+```{r}
+library(dplyr)
+library(lubridate)
+
+# 0) Make sure dates are Date
+df_final <- df_final %>%
+  mutate(StartDate = as.Date(StartDate), ApprovalDate = as.Date(ApprovalDate))
+
+df_datemodified <- df_datemodified %>%
+  mutate(StartDate = as.Date(StartDate), ApprovalDate = as.Date(ApprovalDate))
+
+# 1) One function to compute the table
+first_phase_tbl <- function(df) {
+  df %>%
+    filter(New_Phase %in% c("Phase 1","Phase 2","Phase 3"),
+           !is.na(StartDate), !is.na(ApprovalDate),
+           StartDate <= ApprovalDate) %>%
+    group_by(drugid, New_Phase, Indication_Type) %>%
+    summarise(
+      First_Start    = min(StartDate, na.rm = TRUE),
+      First_Approval = min(ApprovalDate, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      months_before = time_length(interval(First_Start, First_Approval), "months"),
+      years_before  = pmin(months_before / 12, 21)
+    )
+}
+
+A <- first_phase_tbl(df_final)
+B <- first_phase_tbl(df_datemodified)
+
+# 2) Check Phase 2 and Phase 3 coverage is identical
+keys <- c("drugid","New_Phase","Indication_Type")
+
+miss_in_A <- anti_join(B %>% filter(New_Phase %in% c("Phase 2","Phase 3")),
+                       A %>% filter(New_Phase %in% c("Phase 2","Phase 3")),
+                       by = keys)
+
+miss_in_B <- anti_join(A %>% filter(New_Phase %in% c("Phase 2","Phase 3")),
+                       B %>% filter(New_Phase %in% c("Phase 2","Phase 3")),
+                       by = keys)
+
+cat("Missing in A (should be 0):", nrow(miss_in_A), "\n")
+cat("Missing in B (should be 0):", nrow(miss_in_B), "\n")
+
+# 3) Compare values for matching rows in Phase 2 and 3
+AB <- inner_join(
+  A %>% filter(New_Phase %in% c("Phase 2","Phase 3")),
+  B %>% filter(New_Phase %in% c("Phase 2","Phase 3")),
+  by = keys,
+  suffix = c("_A","_B")
+)
+
+# exact date equality
+date_mismatch <- AB %>%
+  filter(First_Start_A != First_Start_B | First_Approval_A != First_Approval_B)
+
+cat("Date mismatches:", nrow(date_mismatch), "\n")
+
+# numeric tolerance for years_before
+tol <- 1e-8
+num_mismatch <- AB %>%
+  mutate(diff_years = years_before_A - years_before_B) %>%
+  filter(!is.na(diff_years) & abs(diff_years) > tol)
+
+cat("Numeric mismatches in years_before:", nrow(num_mismatch), "\n")
+
+# 4) Phase 2 and 3 summaries side by side
+summarise_years <- function(df) {
+  df %>%
+    filter(New_Phase %in% c("Phase 2","Phase 3")) %>%
+    group_by(New_Phase) %>%
+    summarise(
+      n            = n(),
+      mean_years   = mean(years_before, na.rm = TRUE),
+      median_years = median(years_before, na.rm = TRUE),
+      q25_years    = quantile(years_before, 0.25, na.rm = TRUE),
+      q75_years    = quantile(years_before, 0.75, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    arrange(factor(New_Phase, levels = c("Phase 2","Phase 3")))
+}
+
+sA <- summarise_years(A)
+sB <- summarise_years(B)
+
+print(sA)
+print(sB)
+
+# 5) Hard assertions that should pass when only Phase 1 changed
+stopifnot(nrow(miss_in_A) == 0L)
+stopifnot(nrow(miss_in_B) == 0L)
+stopifnot(nrow(date_mismatch) == 0L)
+stopifnot(nrow(num_mismatch) == 0L)
+
+```
+
+
+```{r}
+
+glimpse(df_final)
+unique(df_final$SNOMED_Hierarchical_Match)
+df_final <- df_final %>%
+  mutate(
+    Indication_Type = if_else(
+      is.na(Indication_Type),
+      "Healthy volunteer / no indication",
+      Indication_Type
+    )
+  )
+
+#summary of phase with different indications
+summary_phase_indication <- df_final %>%
+  group_by(New_Phase,Indication_Type) %>%
+  summarise(num_trials = n(), .groups = 'drop')
+summary_phase_indication <- tmp %>%
+  group_by(New_Phase,Indication_Type) %>%
+  summarise(num_trials = n(), .groups = 'drop')
+```
+
+
+
+
+```{r include phase 1 trial for healthy volunteer}
+
+library(dplyr)
+library(lubridate)
+
+library(dplyr)
+library(lubridate)
+library(dplyr)
+library(lubridate)
+
+df_base <- df_final %>%
+  filter(New_Phase %in% c("Phase 1", "Phase 2", "Phase 3")) %>%
+  filter(!is.na(StartDate), !is.na(ApprovalDate), StartDate <= ApprovalDate) %>%
+  group_by(drugid, New_Phase) %>%
+  summarise(
+    First_Start   = min(StartDate, na.rm = TRUE),
+    First_Approval = min(ApprovalDate, na.rm = TRUE),  # renamed to avoid overwriting
+    .groups = "drop"
+  ) %>%
+  mutate(
+    months_before = time_length(interval(First_Start, First_Approval), "months"),
+    q_before      = ceiling(months_before / 3),                
+    q_capped      = if_else(q_before > 80, 81L, as.integer(q_before)),
+    year_from_q   = if_else(q_capped == 81L, 21L, as.integer(q_capped / 4))
+  )
+library(dplyr)
+library(lubridate)
+library(tidyr)
+library(writexl)
+
+# Step 1: Get first trial per drug, phase, and indication
+df_base_firstPhase <- df_final %>%
+  filter(New_Phase %in% c("Phase 1", "Phase 2", "Phase 3")) %>%
+  filter(!is.na(StartDate), !is.na(ApprovalDate), StartDate <= ApprovalDate) %>%
+  group_by(drugid, New_Phase) %>%
+  summarise(
+    First_Start    = min(StartDate, na.rm = TRUE),
+    First_Approval = min(ApprovalDate, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    months_before = time_length(interval(First_Start, First_Approval), "months"),
+    q_before      = ceiling(months_before / 3),
+    q_capped      = if_else(q_before > 80, 81L, as.integer(q_before)),
+    year_from_q   = if_else(q_capped == 81L, 21L, as.integer(q_capped / 4))
+  )
+
+# Step 2: Raw quarterly counts
+counts_raw <- df_base_firstPhase %>%
+  count(New_Phase,  q_capped, name = "n")
+
+# Step 3: Pad so every Phase × Indication_Type has quarters 0..81
+grid_full <- expand_grid(
+  New_Phase = sort(unique(df_base_firstPhase$New_Phase)),
+  q_capped = 0:81
+)
+
+counts_quarterly_padded <- grid_full %>%
+  left_join(counts_raw, by = c("New_Phase", "q_capped")) %>%
+  mutate(
+    n = if_else(is.na(n), 0L, n),
+    year_from_q = if_else(q_capped == 81L, 21L, as.integer(q_capped / 4))
+  ) %>%
+  arrange(New_Phase, desc(q_capped))
+
+# Step 4: Collapse to yearly bins for quick plots
+counts_yearly_collapsed <- counts_quarterly_padded %>%
+  group_by(New_Phase,  year_from_q) %>%
+  summarise(n = sum(n), .groups = "drop") %>%
+  arrange(New_Phase, desc(year_from_q))
+
+# Step 5: Helpful lookup table for Excel axes
+quarter_year_lookup <- tibble(
+  Quarter = 0:81,
+  Year = if_else(0:81 == 81, 21L, as.integer((0:81) / 4)),
+  Axis_Label = if_else(0:81 == 0, "A", as.character((0:81) / 4))
+)
+
+# Step 6: Write all to one workbook
+write_xlsx(
+  list(
+    quarterly_padded = counts_quarterly_padded,
+    yearly_collapsed = counts_yearly_collapsed,
+    quarter_year_lookup = quarter_year_lookup
+  ),
+  "firstphasetrials_Indication_quarterly_counts_hincludehealthyvolunteerphase1FIXED.xlsx"
+)
+
+cat("✅ Wrote firstphasetrials_Indication_quarterly_counts_hincludehealthyvolunteerphase1FIXED.xlsx\n")
+
+
+
+# aggregated by Phase × Quarter
+plot_quarter <- counts_quarterly_padded %>%
+  group_by(New_Phase, q_capped) %>% summarise(n = sum(n), .groups = "drop")
+
+# quarters that correspond to 0,4,8,12,16,20 years
+year_breaks_q <- c(0, 16, 32, 48, 64, 80)
+year_labels   <- c(0, 4, 8, 12, 16, 20)
+
+Firstphase_quarter<- ggplot(plot_quarter, aes(q_capped, n, color = New_Phase)) +
+  geom_point(alpha = 0.7, size = 2.8) +
+  geom_smooth(method = "loess", se = FALSE, span = 0.2, linewidth = 2) +
+  scale_x_reverse(
+    limits = c(81, 0),
+    breaks = year_breaks_q,
+    labels = year_labels,
+    expand = expansion(mult = c(0.01, 0.02))
+  ) + scale_color_manual(
+    values = c("Phase 1" = "steelblue",
+               "Phase 2" = "darkorange",
+               "Phase 3" = "darkgreen")
+  )+
+  scale_y_continuous(position = "right", name = "# clinical trials initiated / quarter") +
+  labs(x = "years prior to approval", color = NULL) +
+  theme_classic(base_size = 16)+ theme(
+    panel.grid = element_blank(),
+    axis.text.x  = element_text(size = 34),
+    axis.text.y  = element_text(size = 34),
+    axis.title.y = element_text(size = 38),
+    axis.title.x = element_text(size = 38)
+  )
+ggsave("Firstphase_quarter.jpg", Firstphase_quarter, width =20, height=12,dpi =300)
+
+
+# regular quartiles from the raw rows
+iqr_df <- df_base_firstPhase %>%
+  group_by(New_Phase) %>%
+  summarise(
+    q1  = quantile(q_capped, 0.25, na.rm = TRUE),
+    med = quantile(q_capped, 0.50, na.rm = TRUE),
+    q3  = quantile(q_capped, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# stagger y positions for the IQR bars (one row per phase)
+max_n  <- max(plot_quarter$n, na.rm = TRUE)
+step   <- 0.06 * max_n
+pos_df <- tibble(
+  New_Phase = c("Phase 1","Phase 2","Phase 3"),
+  y_pos     = c(-step, -2*step, -3*step)   # three separate baselines
+)
+
+iqr_pos <- iqr_df %>% left_join(pos_df, by = "New_Phase")
+
+
+
+# 1) Unweighted quartiles from raw rows
+iqr_df <- df_base_firstPhase %>%
+  group_by(New_Phase) %>%
+  summarise(
+    q1  = quantile(q_capped, 0.25, na.rm = TRUE),
+    med = quantile(q_capped, 0.50, na.rm = TRUE),
+    q3  = quantile(q_capped, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+# 1) Aggregate by quarter
+plot_quarter <- counts_quarterly_padded %>%
+  group_by(New_Phase, q_capped) %>%
+  summarise(n = sum(n), .groups = "drop")
+
+
+# 1) Common height above tallest curve
+global_peak <- max(loess_grid$yhat, na.rm = TRUE)
+bar_base    <- global_peak * 1.06
+
+# 2) Small vertical offsets to un-merge the bars
+bar_offset <- c("Phase 1" = 0.00 * global_peak,
+                "Phase 2" = 0.03 * global_peak,
+                "Phase 3" = 0.06 * global_peak)
+
+loess_pos <- iqr_df %>%
+  mutate(y_pos = bar_base + bar_offset[as.character(New_Phase)])
+
+# 3) Shorter median tick so it does not touch neighbors
+tick_half <- 0.012 * global_peak
+
+Firstphase_quarterIQR <- ggplot(plot_quarter, aes(q_capped, n, color = New_Phase)) +
+  geom_point(alpha = 0.7, size = 2.8) +
+  geom_smooth(method = "loess", se = FALSE, span = 0.2, linewidth = 2) +
+  geom_segment(
+    data = loess_pos,
+    aes(x = q1, xend = q3, y = y_pos, yend = y_pos, color = New_Phase),
+    inherit.aes = FALSE, linewidth = 1.1, alpha = 0.95, lineend = "round"
+  ) +
+  geom_segment(
+    data = loess_pos,
+    aes(x = med, xend = med, y = y_pos - tick_half, yend = y_pos + tick_half, color = New_Phase),
+    inherit.aes = FALSE, linewidth = 1.1
+  ) +
+  scale_x_reverse(limits = c(81, 0), breaks = year_breaks_q, labels = year_labels,
+                  expand = expansion(mult = c(0.01, 0.02))) +
+  scale_color_manual(values = c("Phase 1" = "steelblue",
+                                "Phase 2" = "darkorange",
+                                "Phase 3" = "darkgreen")) +
+  scale_y_continuous(position = "right",
+                     name = "# clinical trials initiated / quarter",
+                     expand = expansion(mult = c(0, 0.14))) +
+  coord_cartesian(clip = "off") +
+  theme_classic(base_size = 16)+ theme(
+    panel.grid = element_blank(),
+    axis.title.x  = element_text(size = 38),
+    axis.text.x   = element_text(size = 38),
+    axis.title.y.right = element_text(size = 38),
+    axis.text.y.right  = element_text(size = 38),
+    axis.title.y.left  = element_blank(),
+    axis.text.y.left   = element_blank(),
+    axis.ticks.y.left  = element_blank(),
+    axis.line.y.left   = element_blank()
+  )
+
+ggsave("Firstphase_quarterly_horizontalIQR_inlcudehealthyvolunteer.jpg",Firstphase_quarterIQR, width=20,height=12,dpi=300 )
+
+# Convert to years. Cap at 21 to match your q_capped logic.
+df_years <- df_base_firstPhase %>%
+  mutate(years_before = pmin(months_before / 12, 21)) 
+ 
+
+# Summary by phase
+summary_years_by_phase <- df_years %>%
+  group_by(New_Phase) %>%
+  summarise(
+    n              = n(),
+    mean_years     = mean(years_before, na.rm = TRUE),
+    median_years   = median(years_before, na.rm = TRUE),
+    q25_years      = quantile(years_before, 0.25, na.rm = TRUE),
+    q75_years      = quantile(years_before, 0.75, na.rm = TRUE),
+    iqr_years      = q75_years - q25_years,
+    sd_years       = sd(years_before, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(factor(New_Phase, levels = c("Phase 1","Phase 2","Phase 3"))) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 2)))
+
+summary_years_by_phase
+```
+
+
+
+
+
+```{r trials for healthy volunteers and no conditio  terms are excluded}
+df_base <- df_datemodified %>%
+  filter(New_Phase %in% c("Phase 1", "Phase 2", "Phase 3")) %>%
+  filter(!is.na(StartDate), !is.na(ApprovalDate), StartDate <= ApprovalDate) %>%
+  group_by(drugid, New_Phase) %>%
+  summarise(
+    First_Start   = min(StartDate, na.rm = TRUE),
+    First_Approval = min(ApprovalDate, na.rm = TRUE),  # renamed to avoid overwriting
+    .groups = "drop"
+  ) %>%
+  mutate(
+    months_before = time_length(interval(First_Start, First_Approval), "months"),
+    q_before      = ceiling(months_before / 3),                
+    q_capped      = if_else(q_before > 80, 81L, as.integer(q_before)),
+    year_from_q   = if_else(q_capped == 81L, 21L, as.integer(q_capped / 4))
+  )
+library(dplyr)
+library(lubridate)
+library(tidyr)
+library(writexl)
+
+# Step 1: Get first trial per drug, phase, and indication
+df_base_firstPhaseexclude <- df_datemodified %>%
+  filter(New_Phase %in% c("Phase 1", "Phase 2", "Phase 3")) %>%
+  filter(!is.na(StartDate), !is.na(ApprovalDate), StartDate <= ApprovalDate) %>%
+  group_by(drugid, New_Phase) %>%
+  summarise(
+    First_Start    = min(StartDate, na.rm = TRUE),
+    First_Approval = min(ApprovalDate, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    months_before = time_length(interval(First_Start, First_Approval), "months"),
+    q_before      = ceiling(months_before / 3),
+    q_capped      = if_else(q_before > 80, 81L, as.integer(q_before)),
+    year_from_q   = if_else(q_capped == 81L, 21L, as.integer(q_capped / 4))
+  )
+
+# Step 2: Raw quarterly counts
+counts_raw <- df_base_firstPhaseexclude  %>%
+  count(New_Phase, q_capped, name = "n")
+
+# Step 3: Pad so every Phase × Indication_Type has quarters 0..81
+grid_full <- expand_grid(
+  New_Phase = sort(unique(df_base_firstPhaseexclude $New_Phase)),
+  q_capped = 0:81
+)
+
+counts_quarterly_padded <- grid_full %>%
+  left_join(counts_raw, by = c("New_Phase", "q_capped")) %>%
+  mutate(
+    n = if_else(is.na(n), 0L, n),
+    year_from_q = if_else(q_capped == 81L, 21L, as.integer(q_capped / 4))
+  ) %>%
+  arrange(New_Phase,desc(q_capped))
+
+# Step 4: Collapse to yearly bins for quick plots
+counts_yearly_collapsed <- counts_quarterly_padded %>%
+  group_by(New_Phase, year_from_q) %>%
+  summarise(n = sum(n), .groups = "drop") %>%
+  arrange(New_Phase, desc(year_from_q))
+
+# Step 5: Helpful lookup table for Excel axes
+quarter_year_lookup <- tibble(
+  Quarter = 0:81,
+  Year = if_else(0:81 == 81, 21L, as.integer((0:81) / 4)),
+  Axis_Label = if_else(0:81 == 0, "A", as.character((0:81) / 4))
+)
+# regular quartiles from the raw rows
+iqr_df <- df_base_firstPhase %>%
+  group_by(New_Phase) %>%
+  summarise(
+    q1  = quantile(q_capped, 0.25, na.rm = TRUE),
+    med = quantile(q_capped, 0.50, na.rm = TRUE),
+    q3  = quantile(q_capped, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# stagger y positions for the IQR bars (one row per phase)
+max_n  <- max(plot_quarter$n, na.rm = TRUE)
+step   <- 0.06 * max_n
+pos_df <- tibble(
+  New_Phase = c("Phase 1","Phase 2","Phase 3"),
+  y_pos     = c(-step, -2*step, -3*step)   # three separate baselines
+)
+
+iqr_pos <- iqr_df %>% left_join(pos_df, by = "New_Phase")
+
+
+
+# 1) Unweighted quartiles from raw rows
+iqr_df <- df_base_firstPhase %>%
+  group_by(New_Phase) %>%
+  summarise(
+    q1  = quantile(q_capped, 0.25, na.rm = TRUE),
+    med = quantile(q_capped, 0.50, na.rm = TRUE),
+    q3  = quantile(q_capped, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+# 1) Aggregate by quarter
+plot_quarter <- counts_quarterly_padded %>%
+  group_by(New_Phase, q_capped) %>%
+  summarise(n = sum(n), .groups = "drop")
+
+
+# 1) Common height above tallest curve
+global_peak <- max(loess_grid$yhat, na.rm = TRUE)
+bar_base    <- global_peak * 1.06
+
+# 2) Small vertical offsets to un-merge the bars
+bar_offset <- c("Phase 1" = 0.00 * global_peak,
+                "Phase 2" = 0.03 * global_peak,
+                "Phase 3" = 0.06 * global_peak)
+
+loess_pos <- iqr_df %>%
+  mutate(y_pos = bar_base + bar_offset[as.character(New_Phase)])
+
+# 3) Shorter median tick so it does not touch neighbors
+tick_half <- 0.012 * global_peak
+
+Firstphase_quarterIQR <- ggplot(plot_quarter, aes(q_capped, n, color = New_Phase)) +
+  geom_point(alpha = 0.7, size = 2.8) +
+  geom_smooth(method = "loess", se = FALSE, span = 0.2, linewidth = 2) +
+  geom_segment(
+    data = loess_pos,
+    aes(x = q1, xend = q3, y = y_pos, yend = y_pos, color = New_Phase),
+    inherit.aes = FALSE, linewidth = 1.1, alpha = 0.95, lineend = "round"
+  ) +
+  geom_segment(
+    data = loess_pos,
+    aes(x = med, xend = med, y = y_pos - tick_half, yend = y_pos + tick_half, color = New_Phase),
+    inherit.aes = FALSE, linewidth = 1.1
+  ) +
+  scale_x_reverse(limits = c(81, 0), breaks = year_breaks_q, labels = year_labels,
+                  expand = expansion(mult = c(0.01, 0.02))) +
+  scale_color_manual(values = c("Phase 1" = "steelblue",
+                                "Phase 2" = "darkorange",
+                                "Phase 3" = "darkgreen")) +
+  scale_y_continuous(position = "right",
+                     name = "# clinical trials initiated / quarter",
+                     expand = expansion(mult = c(0, 0.14))) +
+  coord_cartesian(clip = "off") +
+  theme_classic(base_size = 16)+ theme(
+    panel.grid = element_blank(),
+    axis.title.x  = element_text(size = 38),
+    axis.text.x   = element_text(size = 38),
+    axis.title.y.right = element_text(size = 38),
+    axis.text.y.right  = element_text(size = 38),
+    axis.title.y.left  = element_blank(),
+    axis.text.y.left   = element_blank(),
+    axis.ticks.y.left  = element_blank(),
+    axis.line.y.left   = element_blank()
+  )
+
+ggsave("Firstphase_quarterly_horizontalIQRwithouthealthyvolunteer.jpg",Firstphase_quarterIQR, width=20,height=12,dpi=300 )
+
+
+
+library(dplyr)
+
+# Convert to years. Cap at 21 to match your q_capped logic.
+df_years <- df_base_firstPhaseexclude %>%
+  mutate(years_before = pmin(months_before / 12, 21))
+
+# Summary by phase
+summary_years_by_phase <- df_years %>%
+  group_by(New_Phase) %>%
+  summarise(
+    n              = n(),
+    mean_years     = mean(years_before, na.rm = TRUE),
+    median_years   = median(years_before, na.rm = TRUE),
+    q25_years      = quantile(years_before, 0.25, na.rm = TRUE),
+    q75_years      = quantile(years_before, 0.75, na.rm = TRUE),
+    iqr_years      = q75_years - q25_years,
+    sd_years       = sd(years_before, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(factor(New_Phase, levels = c("Phase 1","Phase 2","Phase 3"))) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 2)))
+
+summary_years_by_phase
+unique(df_final$Indication_Type)
+
+```
+
+```{r trial number for first trials in each phase by indication grouup and indication type}
+
+valid_phases <- c("Phase 1", "Phase 2", "Phase 3")
+
+df_pre_approval <- df_datemodified %>%
+  filter(
+    New_Phase %in% valid_phases,
+    !is.na(StartDate), !is.na(ApprovalDate),
+    StartDate <= ApprovalDate
+  )%>%group_by(drugid, New_Phase) %>%
+  slice_min(order_by = StartDate, n = 1, with_ties = FALSE) %>%
+  ungroup()
+
+
+# counts and phase shares within each Indication_Group
+by_group_phase <- df_pre_approval %>%
+  group_by(Indication_Group, New_Phase, Indication_Type) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(Indication_Group, New_Phase) %>%
+  mutate(phase_total = sum(n), pct = n / phase_total) %>%
+  select(Indication_Group, New_Phase, Indication_Type, n, pct) %>%
+  pivot_wider(
+    names_from = Indication_Type,
+    values_from = c(n, pct),
+    values_fill = 0
+  ) %>%
+  arrange(Indication_Group, New_Phase)
+# optional overall view across both groups
+overall_phase <- df_pre_approval %>%
+  group_by(New_Phase, Indication_Type, Indication_Group) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(New_Phase) %>%
+  mutate(phase_total = sum(n), pct = n / phase_total) %>%
+  dplyrselect(New_Phase, Indication_Type, n, pct) %>%
+  pivot_wider(
+    names_from = Indication_Type,
+    values_from = c(n, pct),
+    values_fill = 0
+  ) %>%
+  arrange(New_Phase)
+# Write a single workbook with 3 sheets
+write_xlsx(
+  list(
+    df_pre_approval = df_pre_approval,
+    by_group_phase  = by_group_phase_xl,
+    overall_phase   = overall_phase_xl
+  ),
+  path = "preapproval_phase_summary.xlsx"
+)
+
+```{r summary of indictaion for the first trials in each phase}
+# 1) Keep Phase 1–3 with valid dates
+df_base <- df_datemodified %>%
+  filter(New_Phase %in% c("Phase 1","Phase 2","Phase 3")) %>%
+  filter(!is.na(StartDate), !is.na(ApprovalDate), StartDate <= ApprovalDate)
+
+# 2) For each drug and phase, take earliest-starting trial (ignore multiple indications)
+first_per_drug_phase <- df_base %>%
+  group_by(drugid, New_Phase) %>%
+  slice_min(order_by = StartDate, n = 1, with_ties = FALSE) %>%
+  ungroup()
+
+# 3) Summarise lead vs alternative counts
+indication_summary <- first_per_drug_phase %>%
+  count(New_Phase, Indication_Type, name = "n") %>%
+  group_by(New_Phase) %>%
+  mutate(pct = n / sum(n)) %>%
+  ungroup()
+
+# 4) Plot lead vs alternative as side-by-side bars
+library(ggplot2)
+p_indication_type <- ggplot(indication_summary, 
+                            aes(x = New_Phase, y = n, fill = Indication_Type)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  scale_fill_manual(values = c("steelblue", "darkorange"))+
+ # scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(
+    title = "Lead vs Alternative indication among first Phase 1/2/3 trials per drug",
+    x = "Phase",
+    y = "# first trials",
+    fill = "Indication Type"
+  ) +
+  theme_classic(base_size = 16)+theme(
+    panel.grid = element_blank(),
+    axis.text.x  = element_text( size = 34),
+    axis.text.y  = element_text(size = 34),
+    axis.title.y = element_text(size = 34),
+    plot.title   = element_text(face = "bold")
+  )
+
+ggsave("p_indication_type.jpg", p_indication_type,width=14, height=12,dpi=300)
+
+
+# Build one phase column for plotting
+df_plot <- bind_rows(
+  df_datemodified %>%
+    filter(New_Phase %in% c("Phase 1", "Phase 2")) %>%
+    mutate(Phase_for_plot = New_Phase),
+  df_datemodified %>%
+    filter(Phase == "Phase 3") %>%
+    mutate(Phase_for_plot = "Phase 3")
+) %>%
+  filter(!is.na(Phase_for_plot)) %>%
+  mutate(
+    Phase_for_plot = factor(Phase_for_plot, levels = c("Phase 1","Phase 2","Phase 3"))
+  )
+
+# 2) For each drug and phase, take earliest-starting trial (ignore multiple indications)
+first_per_drug_phase <- df_plot %>%
+  group_by(drugid, Phase_for_plot) %>%
+  slice_min(order_by = StartDate, n = 1, with_ties = FALSE) %>%
+  ungroup()
+# 3) Summarise lead vs alternative counts
+indication_summary <- first_per_drug_phase %>%
+  count(Phase_for_plot, Indication_Type, name = "n") %>%
+  group_by(Phase_for_plot) %>%
+  mutate(pct = n / sum(n)) %>%
+  ungroup()
+p_indication_type <- ggplot(indication_summary, 
+                            aes(x = Phase_for_plot, y = n, fill = Indication_Type)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  scale_fill_manual(values = c("steelblue", "darkorange"))+
+ # scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(
+    title = "Lead vs Alternative indication among first Phase 1/2/3 trials per drug",
+    x = "Phase",
+    y = "# first trials",
+    fill = "Indication Type"
+  ) +
+  theme_classic(base_size = 16)
+
+```
+
+
+```{r Start time before approval for All trials for Phase1/2/3 }
+
+library(readr)
+library(dplyr)
+library(ggplot2)
+
+# 1) Build quarters and years
+df_q <- df_datemodified %>%
+  filter(New_Phase %in% c("Phase 1","Phase 2","Phase 3"),
+         !is.na(StartDate), !is.na(ApprovalDate), StartDate <= ApprovalDate) %>%
+  mutate(
+    months_before = time_length(interval(StartDate, ApprovalDate), "months"),
+    q_before      = ceiling(months_before / 3),      # quarter index: 1,2,...
+    years_before  = q_before / 4                      # 0.25-step years
+  )
+
+# 2) Cap >20y into a single bin at 21 and aggregate
+q_counts <- df_q %>%
+  mutate(years_capped = if_else(years_before > 20, 21, years_before)) %>%  # 21 represents >20
+  group_by(New_Phase, years_capped) %>%
+  summarise(n = n(), .groups = "drop")
+# install.packages("writexl")  # run this once if not installed
+library(writexl)
+
+# Write to Excel
+write_xlsx(q_counts, "q_counts_output.xlsx")
+
+
+p_Phase_quarterly <- ggplot(q_counts,
+                  aes(x = years_capped, y = n, color = New_Phase, group = New_Phase)) +
+  geom_point(size = 2, alpha = 0.9) +
+  geom_smooth(method = "loess", se = FALSE, span = 0.2, linewidth = 2) +
+ scale_x_reverse(
+  limits = c(21, 0),
+  breaks = seq(0, 20, by = 4),
+  labels = seq(0, 20, by = 4),
+  expand = expansion(mult = c(0.01, 0.02))
+)+
+  scale_y_continuous(position = "right") +           # move y-axis to the right
+  labs(
+    x = "years prior to approval",
+    y = "# clinical trials initiated/quarter",
+    color = NULL
+  ) +scale_color_manual(
+    values = c("Phase 1" = "steelblue",
+               "Phase 2" = "darkorange",
+               "Phase 3" = "darkgreen")
+  )+
+  theme_classic(base_size = 14) +
+  theme(
+    panel.grid = element_blank(),
+    strip.text = element_text(face = "bold"),
+    axis.title.x  = element_text(size = 38),
+    axis.text.x   = element_text(size = 38),
+    axis.title.y.right = element_text(size = 38),
+    axis.text.y.right  = element_text(size = 38),
+    axis.line.y.right  = element_line(),             # show right axis line
+    axis.ticks.y.right = element_line(),
+    axis.title.y.left  = element_blank(),            # hide left axis
+    axis.text.y.left   = element_blank(),
+    axis.ticks.y.left  = element_blank(),
+    axis.line.y.left   = element_blank()
+  )
+p_Phase_quarterly
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+
+
+# 1) Filter and compute quarters before approval
+df_q <- df_datemodified %>%
+  filter(
+    New_Phase %in% c("Phase 1","Phase 2","Phase 3"),
+    !is.na(StartDate), !is.na(ApprovalDate),
+    StartDate <= ApprovalDate
+  ) %>%
+  mutate(
+    months_before = time_length(interval(StartDate, ApprovalDate), "months"),
+    q_before      = ceiling(months_before / 3),                # quarters
+    q_capped      = if_else(q_before > 80, 81L, as.integer(q_before)),
+    year_from_q   = if_else(q_capped == 81L, 21L, as.integer(q_capped / 4))  # 4 qtrs = 1 yr
+  )
+
+# 2) Raw quarterly counts
+counts_raw <- df_q %>%
+  count(New_Phase, q_capped, name = "n")
+
+# 3) Pad so every Phase × Indication_Type has quarters 0..81
+grid_full <- expand_grid(
+  New_Phase = sort(unique(df_q$New_Phase)),
+  q_capped = 0:81
+)
+
+counts_quarterly_padded <- grid_full %>%
+  left_join(counts_raw, by = c("New_Phase","q_capped")) %>%
+  mutate(n = if_else(is.na(n), 0L, n),
+         year_from_q = if_else(q_capped == 81L, 21L, as.integer(q_capped / 4))) %>%
+  arrange(New_Phase, desc(q_capped))
+
+# 4) Collapse to yearly bins for quick plots
+counts_yearly_collapsed <- counts_quarterly_padded %>%
+  group_by(New_Phase,  year_from_q) %>%
+  summarise(n = sum(n), .groups = "drop") %>%
+  arrange(New_Phase, desc(year_from_q))
+
+# 5) Helpful lookup table for Excel axes
+quarter_year_lookup <- tibble(
+  Quarter = 0:81,
+  Year    = if_else(0:81 == 81, 21L, as.integer((0:81) / 4)),
+  Axis_Label = if_else(Quarter == 0, "A", as.character(Year))  # use "A" for approval if you want
+)
+
+# 6) Write all to one workbook
+write_xlsx(
+  list(
+    quarterly_padded   = counts_quarterly_padded,
+    yearly_collapsed   = counts_yearly_collapsed,
+    quarter_year_lookup = quarter_year_lookup
+  ),
+  "quarterly_counts_Phase_FIXED.xlsx"
+)
+
+cat("Wrote quarterly_counts_Phase_FIXED.xlsx\n")
+library(dplyr)
+library(lubridate)
+library(writexl)
+
+# Rebuild df_q if needed to ensure years metric exists
+df_q <- df_datemodified %>%
+  filter(
+    New_Phase %in% c("Phase 1","Phase 2","Phase 3"),
+    !is.na(StartDate), !is.na(ApprovalDate),
+    StartDate <= ApprovalDate
+  ) %>%
+  mutate(
+    months_before = time_length(interval(StartDate, ApprovalDate), "months"),
+    years_before  = months_before / 12
+  )
+
+phase_summary_years <- df_q %>%
+  group_by(New_Phase) %>%
+  summarise(
+    n              = dplyr::n(),
+    mean_years     = mean(years_before, na.rm = TRUE),
+    median_years   = median(years_before, na.rm = TRUE),
+    q1_years       = quantile(years_before, 0.25, na.rm = TRUE, names = FALSE),
+    q3_years       = quantile(years_before, 0.75, na.rm = TRUE, names = FALSE),
+    .groups = "drop"
+  ) %>%
+  arrange(factor(New_Phase, levels = c("Phase 1","Phase 2","Phase 3")))
+
+write_xlsx(list(phase_summary_years = phase_summary_years),
+           "summary_years_by_phase.xlsx")
+
+cat("Wrote summary_years_by_phase.xlsx\n")
+
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# q_counts must have: years_capped, n, New_Phase
+phase_levels <- c("Phase 1","Phase 2","Phase 3")
+# 2) Cap >20y into a single bin at 21 and aggregate
+# 1) Filter and compute quarters before approval
+df_q <- df_datemodified %>%
+  filter(
+    New_Phase %in% c("Phase 1","Phase 2","Phase 3"),
+    !is.na(StartDate), !is.na(ApprovalDate),
+    StartDate <= ApprovalDate
+  ) %>%
+  mutate(
+    months_before = time_length(interval(StartDate, ApprovalDate), "months"),
+    q_before      = ceiling(months_before / 3),                # quarters
+    q_capped      = if_else(q_before > 80, 81L, as.integer(q_before)),
+    year_from_q   = if_else(q_capped == 81L, 21L, as.integer(q_capped / 4))  # 4 qtrs = 1 yr
+  )
+
+#library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# 0) From your starting df_q, create a numeric years variable capped at >20y -> 21
+df_q2 <- df_q %>%
+  mutate(
+    years_capped = if_else(q_before > 80, 21, q_before / 4)  # 0.25-year steps; 21 == >20y
+  )
+
+# 1) Quartiles (UNWEIGHTED) at the trial level, by phase
+phase_qs_wide <- df_q2 %>%
+  group_by(New_Phase) %>%
+  summarise(
+    q1 = quantile(years_capped, 0.25, na.rm = TRUE),
+    median = quantile(years_capped, 0.50, na.rm = TRUE),
+    q3 = quantile(years_capped, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# (Optional) peek at the numbers
+print(phase_qs_wide)
+
+# 2) Build counts per phase × year bin for the curve
+q_counts <- df_q2 %>%
+  group_by(New_Phase, years_capped) %>%
+  summarise(n = n(), .groups = "drop")
+
+# 3) Long form for vertical lines
+phase_qs_long <- phase_qs_wide %>%
+  pivot_longer(c(q1, q3), names_to = "Quantile", values_to = "xint") %>%
+  mutate(Quantile = factor(Quantile, levels = c("q1","q3"), labels = c("Q1","Q3")))
+
+# 4) Plot: curve + points + vertical Q1/Q3 per phase
+phase_levels <- c("Phase 1","Phase 2","Phase 3")
+
+p_Phase_quarterly <- ggplot(q_counts,
+  aes(x = years_capped, y = n, color = New_Phase, group = New_Phase)) +
+  geom_point(size = 2, alpha = 0.9) +
+  geom_smooth(method = "loess", se = FALSE, span = 0.2, linewidth = 2) +
+  # Quartile markers (same trial-level definition)
+  geom_vline(
+    data = phase_qs_long,
+    aes(xintercept = xint, color = New_Phase, linetype = Quantile),
+    inherit.aes = FALSE, linewidth = 1.6
+  ) +
+  scale_linetype_manual(values = c("Q1" = "dashed", "Q3" = "dotted"), name = NULL) +
+  scale_x_reverse(
+    limits = c(21, 0),
+    breaks = seq(0, 20, by = 4),
+    labels = seq(0, 20, by = 4),
+    expand = expansion(mult = c(0.01, 0.02))
+  ) +
+  scale_y_continuous(position = "right") +
+  scale_color_manual(values = c("Phase 1" = "steelblue",
+                                "Phase 2" = "darkorange",
+                                "Phase 3" = "darkgreen"),
+                     breaks = phase_levels, name = NULL) +
+  labs(
+    x = "years prior to approval",
+    y = "# clinical trials initiated/quarter"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    panel.grid = element_blank(),
+    axis.title.x  = element_text(size = 38),
+    axis.text.x   = element_text(size = 38),
+    axis.title.y.right = element_text(size = 38),
+    axis.text.y.right  = element_text(size = 38),
+    axis.title.y.left  = element_blank(),
+    axis.text.y.left   = element_blank(),
+    axis.ticks.y.left  = element_blank(),
+    axis.line.y.left   = element_blank()
+  )
+
+p_Phase_quarterly
+ggsave("p_Phase_quarterly_withverticalIQR.jpg", p_Phase_quarterly,width =20, height=12,dpi =300)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(lubridate)
+
+# START from your df_q
+df_q2 <- df_q %>%
+  mutate(
+    years_capped = if_else(q_before > 80, 21, q_before / 4)  # 0.25-year steps; 21 == >20y
+  )
+
+# Counts for the curves
+q_counts <- df_q2 %>%
+  group_by(New_Phase, years_capped) %>%
+  summarise(n = n(), .groups = "drop")
+
+# Quartiles from trial rows (unweighted)
+phase_qs_wide <- df_q2 %>%
+  group_by(New_Phase) %>%
+  summarise(
+    q1     = quantile(years_capped, 0.25, na.rm = TRUE),
+    median = quantile(years_capped, 0.50, na.rm = TRUE),
+    q3     = quantile(years_capped, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Y positions so bars sit above the curves and do not overlap
+phase_levels <- c("Phase 1","Phase 2","Phase 3")
+y_max <- max(q_counts$n, na.rm = TRUE)
+y_pos_map <- c("Phase 1" = y_max * 0.95,
+               "Phase 2" = y_max * 0.90,
+               "Phase 3" = y_max * 0.85)
+
+phase_qs_bars <- phase_qs_wide %>%
+  mutate(y = y_pos_map[as.character(New_Phase)])
+
+# Base plot with curves and points
+p_quartile_bars <-
+  ggplot(q_counts,
+         aes(x = years_capped, y = n, color = New_Phase, group = New_Phase)) +
+  geom_point(size = 3, alpha = 0.9) +
+  geom_smooth(method = "loess", se = FALSE, span = 0.6, linewidth = 3) +
+  # Horizontal IQR bars on top
+  geom_segment(
+    data = phase_qs_bars,
+    aes(x = q1, xend = q3, y = y, yend = y, color = New_Phase),
+    inherit.aes = FALSE, linewidth = 4, alpha = 0.95
+  ) +
+  # Median tick
+  geom_segment(
+    data = phase_qs_bars,
+    aes(x = median, xend = median, y = y - 0.02 * y_max, yend = y + 0.02 * y_max, color = New_Phase),
+    inherit.aes = FALSE, linewidth = 1.8
+  ) +
+  # Optional Q1 and Q3 dots
+  geom_point(data = phase_qs_bars, aes(x = q1, y = y, color = New_Phase),
+             inherit.aes = FALSE, size = 3) +
+  geom_point(data = phase_qs_bars, aes(x = q3, y = y, color = New_Phase),
+             inherit.aes = FALSE, size = 3) +
+  scale_x_reverse(
+    limits = c(21, 0),
+    breaks = seq(0, 20, by = 4),
+    labels = seq(0, 20, by = 4),
+    expand = expansion(mult = c(0.01, 0.02))
+  ) +
+  scale_y_continuous(position = "right") +
+  scale_color_manual(values = c("Phase 1" = "steelblue",
+                                "Phase 2" = "darkorange",
+                                "Phase 3" = "darkgreen"),
+                     breaks = phase_levels, name = NULL) +
+  labs(
+    x = "years prior to approval",
+    y = "# clinical trials initiated/quarter"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    panel.grid = element_blank(),
+    axis.title.x  = element_text(size = 38),
+    axis.text.x   = element_text(size = 38),
+    axis.title.y.right = element_text(size = 38),
+    axis.text.y.right  = element_text(size = 38),
+    axis.title.y.left  = element_blank(),
+    axis.text.y.left   = element_blank(),
+    axis.ticks.y.left  = element_blank(),
+    axis.line.y.left   = element_blank()
+  )
+
+p_quartile_bars
+ggsave("p_Phase_quarterly_withhorizontalIQR.jpg", p_quartile_bars,width =20, height=12,dpi =300)
+
+
+
+
+# plot the healthy volunteer trials separtaely
+# 1) Filter and compute quarters before approval
+df_final_q <- df_final %>%
+  filter(
+    New_Phase %in% c("Phase 1","Phase 2","Phase 3"),
+    !is.na(StartDate), !is.na(ApprovalDate),
+    StartDate <= ApprovalDate
+  ) %>%
+  mutate(
+    months_before = time_length(interval(StartDate, ApprovalDate), "months"),
+    q_before      = ceiling(months_before / 3),                # quarters
+    q_capped      = if_else(q_before > 80, 81L, as.integer(q_before)),
+    year_from_q   = if_else(q_capped == 81L, 21L, as.integer(q_capped / 4))  # 4 qtrs = 1 yr
+  )
+
+# 2) Raw quarterly counts
+counts_raw <- df_final_q %>%
+  count(New_Phase, q_capped, name = "n")
+
+# 3) Pad so every Phase × Indication_Type has quarters 0..81
+grid_full <- expand_grid(
+  New_Phase = sort(unique(df_final_q$New_Phase)),
+  q_capped = 0:81
+)
+
+counts_quarterly_padded <- grid_full %>%
+  left_join(counts_raw, by = c("New_Phase","q_capped")) %>%
+  mutate(n = if_else(is.na(n), 0L, n),
+         year_from_q = if_else(q_capped == 81L, 21L, as.integer(q_capped / 4))) %>%
+  arrange(New_Phase, desc(q_capped))
+
+# 4) Collapse to yearly bins for quick plots
+counts_yearly_collapsed <- counts_quarterly_padded %>%
+  group_by(New_Phase,  year_from_q) %>%
+  summarise(n = sum(n), .groups = "drop") %>%
+  arrange(New_Phase, desc(year_from_q))
+
+# 5) Helpful lookup table for Excel axes
+quarter_year_lookup <- tibble(
+  Quarter = 0:81,
+  Year    = if_else(0:81 == 81, 21L, as.integer((0:81) / 4)),
+  Axis_Label = if_else(Quarter == 0, "A", as.character(Year))  # use "A" for approval if you want
+)
+
+# 0) From your starting df_q, create a numeric years variable capped at >20y -> 21
+df_q2_final <- df_final_q %>%
+  mutate(
+    years_capped = if_else(q_before > 80, 21, q_before / 4)  # 0.25-year steps; 21 == >20y
+  )
+
+
+
+library(dplyr)
+library(ggplot2)
+
+# df_q2_final already has: New_Phase, Indication_Type, years_capped
+
+# 1) Define curve groups and linetype groups
+df_ext <- df_q2_final %>%
+  mutate(
+    CurveGroup = case_when(
+      New_Phase == "Phase 1" & Indication_Type == "Healthy volunteer / no indication" ~ "P1 healthy",
+      New_Phase == "Phase 1"                                                            ~ "P1 other",
+      TRUE                                                                              ~ "All"
+    ),
+    LType = case_when(
+      New_Phase == "Phase 1" & Indication_Type == "Healthy volunteer / no indication" ~ "Healthy volunteer Phase 1",
+      New_Phase == "Phase 1"                                                          ~ "Other Phase 1",
+      TRUE                                                                            ~ "All other phases"
+    )
+  )
+
+# 2) Counts for curves
+q_counts_all <- df_ext %>%
+  group_by(New_Phase, CurveGroup, LType, years_capped) %>%
+  summarise(n = n(), .groups = "drop")
+
+# 3) IQRs per Phase × CurveGroup
+phase_qs_all <- df_ext %>%
+  group_by(New_Phase, CurveGroup, LType) %>%
+  summarise(
+    q1     = quantile(years_capped, 0.25, na.rm = TRUE),
+    median = quantile(years_capped, 0.50, na.rm = TRUE),
+    q3     = quantile(years_capped, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 4) Y positions for bars
+y_max <- max(q_counts_all$n, na.rm = TRUE)
+
+phase_base <- c("Phase 1" = 0.95,
+                "Phase 2" = 0.90,
+                "Phase 3" = 0.85)
+
+sub_offset <- c("P1 other" = 0.00,   # top bar for Phase 1
+                "P1 healthy" = -0.04,# slightly lower bar for P1 healthy
+                "All" = 0.00)
+
+phase_qs_bars <- phase_qs_all %>%
+  mutate(
+    y = y_max * (phase_base[as.character(New_Phase)] +
+                 sub_offset[as.character(CurveGroup)])
+  )
+
+# 5) Axis breaks
+year_breaks <- seq(0, 20, by = 4)
+year_labels <- seq(0, 20, by = 4)
+
+p_all_phases_splitP1 <-
+  ggplot(
+    q_counts_all,
+    aes(x = years_capped,
+        y = n,
+        color = New_Phase,
+        group = interaction(New_Phase, CurveGroup))
+  ) +
+  
+  # POINTS FIRST
+  geom_point(
+    aes(alpha = LType),
+    size = 2.8
+  ) +
+  
+  scale_alpha_manual(
+    values = c("Healthy volunteer Phase 1" = 0.4,
+               "Other Phase 1"            = 0.9,
+               "All other phases"         = 0.9),
+    guide = "none"
+  ) +
+  
+  # STRONG, PROMINENT CURVE LINES ON TOP
+  geom_smooth(
+    aes(linetype = LType),
+    method    = "loess",
+    se        = FALSE,
+    span      = 0.55,
+    linewidth = 3.5,     # thicker lines
+    lineend   = "round"
+  ) +
+  
+  # Custom linetype for dotted curve so it visibly stands out
+  scale_linetype_manual(
+    values = c(
+      "Other Phase 1"            = "solid",
+      "All other phases"         = "solid",
+      "Healthy volunteer Phase 1" = "longdash"   # MUCH more prominent than dotted
+    ),
+    name = NULL
+  ) +
+  
+  # IQR bars (unchanged)
+  geom_segment(
+    data = phase_qs_bars,
+    aes(x = q1, xend = q3, y = y, yend = y,
+        color = New_Phase, linetype = LType),
+    inherit.aes = FALSE,
+    linewidth   = 3,
+    alpha       = 0.95
+  ) +
+  geom_segment(
+    data = phase_qs_bars,
+    aes(x = median, xend = median,
+        y = y - 0.02 * y_max,
+        yend = y + 0.02 * y_max,
+        color = New_Phase, linetype = LType),
+    inherit.aes = FALSE,
+    linewidth   = 2
+  ) +
+  
+  scale_color_manual(
+    values = c("Phase 1" = "steelblue",
+               "Phase 2" = "darkorange",
+               "Phase 3" = "darkgreen"),
+    name = "Phase"
+  ) +
+  
+  scale_x_reverse(
+    limits = c(21, 0),
+    breaks = seq(0, 20, by = 4),
+    labels = seq(0, 20, by = 4)
+  ) +
+  scale_y_continuous(
+    position = "right",
+    name     = "# clinical trials initiated/quarter"
+  ) +
+  labs(x = "years prior to approval") +
+  theme_classic(base_size = 18) +
+  theme(
+    panel.grid          = element_blank(),
+    axis.title.x        = element_text(size = 34),
+    axis.text.x         = element_text(size = 34),
+    axis.title.y.right  = element_text(size = 34),
+    axis.text.y.right   = element_text(size = 34)
+  )
+
+ggsave("AllPhases_P1_healthy_vs_rest.jpg", p_all_phases_splitP1,
+      width = 20, height = 12, dpi = 300)
+
+
+library(dplyr)
+library(tidyr)
+
+# STEP 1: Create Phase categories for the table
+df_summary <- df_q2_final %>%
+  mutate(
+    Phase_table = case_when(
+      New_Phase == "Phase 1" &
+        Indication_Type == "Healthy volunteer / no indication" ~
+        "Phase 1 – healthy volunteer",
+      New_Phase == "Phase 1" ~
+        "Phase 1 – other",
+      New_Phase == "Phase 2" ~
+        "Phase 2",
+      New_Phase == "Phase 3" ~
+        "Phase 3"
+    )
+  )
+
+# STEP 2: Compute summary stats
+summary_stats <- df_summary %>%
+  group_by(Phase_table) %>%
+  summarise(N= n(),
+    Mean   = mean(years_capped, na.rm = TRUE),
+    Median = median(years_capped, na.rm = TRUE),
+    IQR    = paste0(
+      quantile(years_capped, 0.25, na.rm = TRUE), " – ",
+      quantile(years_capped, 0.75, na.rm = TRUE)
+    ),
+    .groups = "drop"
+  )
+
+# STEP 3: Spread into the wide “presentation table” format
+summary_table <- summary_stats %>%
+  pivot_longer(cols = c(Mean, Median, IQR),
+               names_to = "Statistic",
+               values_to = "Value") %>%
+  pivot_wider(
+    names_from = Phase_table,
+    values_from = Value
+  )
+
+summary_table
+
+```
+
+
+```{r}
+# 1) Filter and compute quarters before approval
+df_q <- df_datemodified %>%
+  filter(
+    New_Phase %in% c("Phase 1","Phase 2","Phase 3"),
+    !is.na(StartDate), !is.na(ApprovalDate),
+    StartDate <= ApprovalDate
+  ) %>%
+  mutate(
+    months_before = time_length(interval(StartDate, ApprovalDate), "months"),
+    q_before      = ceiling(months_before / 3),                # quarters
+    q_capped      = if_else(q_before > 80, 81L, as.integer(q_before)),
+    year_from_q   = if_else(q_capped == 81L, 21L, as.integer(q_capped / 4))  # 4 qtrs = 1 yr
+  )
+
+# 2) Raw quarterly counts
+counts_raw <- df_q %>%
+  count(New_Phase, q_capped, name = "n")
+
+# 3) Pad so every Phase × Indication_Type has quarters 0..81
+grid_full <- expand_grid(
+  New_Phase = sort(unique(df_q$New_Phase)),
+  q_capped = 0:81
+)
+
+counts_quarterly_padded <- grid_full %>%
+  left_join(counts_raw, by = c("New_Phase","q_capped")) %>%
+  mutate(n = if_else(is.na(n), 0L, n),
+         year_from_q = if_else(q_capped == 81L, 21L, as.integer(q_capped / 4))) %>%
+  arrange(New_Phase, desc(q_capped))
+
+# 4) Collapse to yearly bins for quick plots
+counts_yearly_collapsed <- counts_quarterly_padded %>%
+  group_by(New_Phase,  year_from_q) %>%
+  summarise(n = sum(n), .groups = "drop") %>%
+  arrange(New_Phase, desc(year_from_q))
+
+# 5) Helpful lookup table for Excel axes
+quarter_year_lookup <- tibble(
+  Quarter = 0:81,
+  Year    = if_else(0:81 == 81, 21L, as.integer((0:81) / 4)),
+  Axis_Label = if_else(Quarter == 0, "A", as.character(Year))  # use "A" for approval if you want
+)
+
+# 6) Write all to one workbook
+write_xlsx(
+  list(
+    quarterly_padded   = counts_quarterly_padded,
+    yearly_collapsed   = counts_yearly_collapsed,
+    quarter_year_lookup = quarter_year_lookup
+  ),
+  "quarterly_counts_Phase_FIXED.xlsx"
+)
+```
+
+
+```{r curve plot for phase and indication start times by quarter}
+library(dplyr)
+library(ggplot2)
+library(writexl)
+library(lubridate)   # if not already loaded
+library(scales)
+
+# 1) Build quarters and years (same as yours)
+df_q <- df_datemodified %>%
+  filter(New_Phase %in% c("Phase 1","Phase 2","Phase 3"),
+         !is.na(StartDate), !is.na(ApprovalDate), StartDate <= ApprovalDate) %>%
+  mutate(
+    months_before = time_length(interval(StartDate, ApprovalDate), "months"),
+    q_before      = ceiling(months_before / 3),
+    years_before  = q_before / 4
+  ) %>%
+  mutate(
+    Indication_Type = factor(Indication_Type, levels = c("Lead","Alternative")),
+    New_Phase = factor(New_Phase, levels = c("Phase 1","Phase 2","Phase 3"))
+  )
+
+# 2) Cap >20y to 21 and aggregate by Phase × Type × bin
+q_counts <- df_q %>%
+  mutate(years_capped = if_else(years_before > 20, 21, years_before)) %>%
+  group_by(New_Phase, Indication_Type, years_capped) %>%
+  summarise(n = n(), .groups = "drop")
+
+# Optional export
+write_xlsx(q_counts, "q_counts_by_phase_type.xlsx")
+# 2) A small factory that returns a plot for one phase
+make_phase_plot <- function(phase_label){
+  ggplot(
+    filter(q_counts, New_Phase == phase_label),
+    aes(x = years_capped, y = n, color = Indication_Type, group = Indication_Type)
+  ) +
+    geom_point(size = 3, alpha = 0.9) +
+    geom_smooth(method = "loess", se = FALSE, span = 0.2, linewidth = 2) +
+    scale_x_reverse(
+      limits = c(21, 0),
+      breaks = seq(0, 20, 4),
+      labels = seq(0, 20, 4),
+      expand = expansion(mult = c(0.01, 0.02))
+    ) +
+    scale_y_continuous(
+      limits = c(0, 120),
+      breaks = seq(0, 120, 20),
+      expand = expansion(mult = c(0, 0)),
+      position = "right"
+    ) +
+    scale_color_manual(values = c("Alternative" = "steelblue", "Lead" = "darkorange")) +
+    labs(x = "years prior to approval", y = "# clinical trials initiated per quarter-bin", color = NULL) +
+    ggtitle(phase_label) +
+    theme_classic(base_size = 14) +
+    theme(
+      panel.grid = element_blank(),
+      plot.title = element_text(face = "bold", hjust = 0.5),
+      axis.text.x=element_text(size=38),
+      axis.text.y=element_text(size=38),
+      axis.title.y = element_blank(),
+      axis.text.y.left   = element_blank(),
+      axis.title.x = element_blank(),
+      axis.ticks.y.left  = element_blank(),
+      axis.line.y.left   = element_blank(),
+      axis.line.y.right  = element_line(),
+      axis.ticks.y.right = element_line()
+    )
+}
+
+p1 <- make_phase_plot("Phase 1")
+p2 <- make_phase_plot("Phase 2")
+p3 <- make_phase_plot("Phase 3")
+library(patchwork)   
+combined_patchwork <-
+  (p1 | p2 | p3) +
+  plot_layout(guides = "collect") +
+  plot_annotation(theme = theme(legend.position = "bottom"))
+
+combined_patchwork
+
+ggsave("Phase_Indication.jpg", combined_patchwork, width=22,height=12,dpi =300)
+
+
+# 3) Plot: facet by Phase, color by Type
+# p_phase_type <- ggplot(
+  #q_counts,
+  #aes(x = years_capped, y = n, color = Indication_Type, group = Indication_Type)
+#) +
+ # geom_point(size = 3, alpha = 0.9) +
+ # geom_smooth(method = "loess", se = FALSE, span = 0.2, linewidth = 2) +
+  #scale_x_reverse(
+   # limits = c(21, 0),
+    #breaks = seq(0, 20, by = 4),
+    #labels = seq(0, 20, by = 4),
+    #expand = expansion(mult = c(0.01, 0.02))
+  #) +
+  #facet_wrap(~ New_Phase, nrow = 1,scales= 'free_y') +
+  #theme_classic(base_size = 14) +
+  #theme(
+
+    # make sure axes and ticks are not globally disabled
+   # axis.line = element_line(),
+    #axis.ticks = element_line(),
+
+    # optional: avoid clipping long tick labels near panel edge
+    #panel.spacing = unit(1, "lines")
+  #)
+
+#p_phase_type
+
+#summarise quartiles and plot vertical and horizzontal bar 
+# 1) Build quarters and years (same as yours)
+df_q <- df_datemodified %>%
+  filter(New_Phase %in% c("Phase 1","Phase 2","Phase 3"),
+         !is.na(StartDate), !is.na(ApprovalDate), StartDate <= ApprovalDate) %>%
+  mutate(
+    months_before = time_length(interval(StartDate, ApprovalDate), "months"),
+    q_before      = ceiling(months_before / 3),
+    years_before  = q_before / 4
+  ) %>%
+  mutate(
+    Indication_Type = factor(Indication_Type, levels = c("Lead","Alternative")),
+    New_Phase = factor(New_Phase, levels = c("Phase 1","Phase 2","Phase 3"))
+  )
+df_q2 <- df_q %>%
+  mutate(
+    years_capped = if_else(q_before > 80, 21, q_before / 4)  # 0.25-year steps; 21 == >20y
+  )
+# Counts for the curves
+q_counts <- df_q2 %>%
+  group_by(New_Phase, Indication_Type, years_capped) %>%
+  summarise(n = n(), .groups = "drop")
+# Quartiles from trial rows (unweighted)
+phase_qs_wide <- df_q2 %>%
+  group_by(New_Phase, Indication_Type,) %>%
+  summarise(
+    q1     = quantile(years_capped, 0.25, na.rm = TRUE),
+    median = quantile(years_capped, 0.50, na.rm = TRUE),
+    q3     = quantile(years_capped, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+y_max <- max(q_counts$n, na.rm = TRUE)
+y_pos_map <- c("Lead" = y_max * 0.95,
+               "Alternative" = y_max * 0.90)
+
+phase_qs_bars <- phase_qs_wide %>%
+  mutate(y = y_pos_map[as.character(Indication_Type)])
+
+make_phase_plot <- function(phase_label){
+
+  # data for this phase only
+  q_phase  <- dplyr::filter(q_counts, New_Phase == phase_label)
+  qs_phase <- dplyr::filter(phase_qs_bars, New_Phase == phase_label)
+
+  # local y positions based on this phase’s peak
+  y_max_local <- max(q_phase$n, na.rm = TRUE)
+  y_pos_map_local <- c("Lead" = y_max_local * 0.95,
+                       "Alternative" = y_max_local * 0.90)
+  qs_phase <- qs_phase %>%
+    dplyr::mutate(y = y_pos_map_local[as.character(Indication_Type)])
+
+  ggplot(q_phase,
+         aes(x = years_capped, y = n, color = Indication_Type, group = Indication_Type)) +
+    geom_point(size = 3, alpha = 0.9) +
+    geom_smooth(method = "loess", se = FALSE, span = 0.6, linewidth = 3) +
+
+    # IQR bar for this phase only
+    geom_segment(
+      data = qs_phase,
+      aes(x = q1, xend = q3, y = y, yend = y, color = Indication_Type),
+      inherit.aes = FALSE, linewidth = 4, alpha = 0.95
+    ) +
+    # single median tick per Indication_Type
+    geom_segment(
+      data = qs_phase,
+      aes(x = median, xend = median,
+          y = y - 0.02 * y_max_local, yend = y + 0.02 * y_max_local,
+          color = Indication_Type),
+      inherit.aes = FALSE, linewidth = 1.8
+    ) +
+
+    scale_x_reverse(
+      limits = c(21, 0),
+      breaks = seq(0, 20, 4),
+      labels = seq(0, 20, 4),
+      expand = expansion(mult = c(0.01, 0.02))
+    ) +
+    scale_y_continuous(
+      limits = c(0, max(120, y_max_local)),   # keep your 0–120 cap but allow larger if needed
+      breaks = seq(0, max(120, y_max_local), 20),
+      expand = expansion(mult = c(0, 0)),
+      position = "right"
+    ) +
+    scale_color_manual(values = c("Alternative" = "steelblue", "Lead" = "darkorange")) +
+    labs(x = "years prior to approval", y = "# clinical trials initiated per quarter-bin", color = NULL) +
+    ggtitle(phase_label) +
+    theme_classic(base_size = 14) +
+    theme(
+      panel.grid = element_blank(),
+      plot.title = element_text(face = "bold", hjust = 0.5),
+      axis.text.x = element_text(size = 38),
+      axis.text.y = element_text(size = 38),
+      axis.title.y = element_blank(),
+      axis.text.y.left = element_blank(),
+      axis.title.x = element_blank(),
+      axis.ticks.y.left = element_blank(),
+      axis.line.y.left = element_blank(),
+      axis.line.y.right = element_line(),
+      axis.ticks.y.right = element_line()
+    )
+}
+p1 <- make_phase_plot("Phase 1")
+p2 <- make_phase_plot("Phase 2")
+p3 <- make_phase_plot("Phase 3")
+library(patchwork)   
+combined_patchwork <-
+  (p1 | p2 | p3) +
+  plot_layout(guides = "collect") +
+  plot_annotation(theme = theme(legend.position = "bottom"))
+
+combined_patchwork
+
+ggsave("Phase_IndicationhorizontalIQR.jpg", combined_patchwork, width=22,height=12,dpi =300)
+library(dplyr)
+library(lubridate)
+library(tidyr)
+library(tibble)
+library(writexl)
+
+# 1) Filter and compute quarters before approval
+df_q <- df_datemodified %>%
+  filter(
+    New_Phase %in% c("Phase 1","Phase 2","Phase 3"),
+    !is.na(StartDate), !is.na(ApprovalDate),
+    StartDate <= ApprovalDate,
+    !is.na(Indication_Type)
+  ) %>%
+  mutate(
+    months_before = time_length(interval(StartDate, ApprovalDate), "months"),
+    q_before      = ceiling(months_before / 3),
+    q_capped      = if_else(q_before > 80, 81L, as.integer(q_before)),
+    year_from_q   = if_else(q_capped == 81L, 21L, as.integer(q_capped / 4))
+  )
+
+# 2) Raw quarterly counts by Phase × Type
+counts_raw <- df_q %>%
+  count(New_Phase, Indication_Type, q_capped, name = "n")
+
+# 3) Pad so every Phase × Type has quarters 0..81
+grid_full <- expand_grid(
+  New_Phase      = sort(unique(df_q$New_Phase)),
+  Indication_Type= sort(unique(df_q$Indication_Type)),
+  q_capped       = 0:81
+)
+
+counts_quarterly_padded_by_type <- grid_full %>%
+  left_join(counts_raw, by = c("New_Phase","Indication_Type","q_capped")) %>%
+  mutate(
+    n = if_else(is.na(n), 0L, n),
+    year_from_q = if_else(q_capped == 81L, 21L, as.integer(q_capped / 4))
+  ) %>%
+  arrange(New_Phase, Indication_Type, desc(q_capped))
+
+# 4) Collapse to yearly bins by Phase × Type
+counts_yearly_collapsed_by_type <- counts_quarterly_padded_by_type %>%
+  group_by(New_Phase, Indication_Type, year_from_q) %>%
+  summarise(n = sum(n), .groups = "drop") %>%
+  arrange(New_Phase, Indication_Type, desc(year_from_q))
+
+# 5) Optional overall counts that ignore Type (kept for parity with your original)
+counts_quarterly_padded_overall <- counts_quarterly_padded_by_type %>%
+  group_by(New_Phase, q_capped, year_from_q) %>%
+  summarise(n = sum(n), .groups = "drop") %>%
+  arrange(New_Phase, desc(q_capped))
+
+counts_yearly_collapsed_overall <- counts_yearly_collapsed_by_type %>%
+  group_by(New_Phase, year_from_q) %>%
+  summarise(n = sum(n), .groups = "drop") %>%
+  arrange(New_Phase, desc(year_from_q))
+
+# 6) Helpful lookup table for Excel axes
+quarter_year_lookup <- tibble(
+  Quarter    = 0:81,
+  Year       = if_else(0:81 == 81, 21L, as.integer((0:81) / 4)),
+  Axis_Label = if_else(Quarter == 0, "A", as.character(Year))
+)
+
+# 7) Write all to one workbook
+write_xlsx(
+  list(
+    quarterly_by_type   = counts_quarterly_padded_by_type,
+    yearly_by_type      = counts_yearly_collapsed_by_type,
+    quarterly_overall   = counts_quarterly_padded_overall,
+    yearly_overall      = counts_yearly_collapsed_overall,
+    quarter_year_lookup = quarter_year_lookup
+  ),
+  "quarterly_counts_Phase_Type_FIXED.xlsx"
+)
+
+cat("Wrote quarterly_counts_Phase_Type_FIXED.xlsx\n")
+library(dplyr)
+library(lubridate)
+library(writexl)
+
+library(dplyr)
+library/writexl)
+
+phase_type_summary_years <- df_q %>%
+  mutate(years_before = months_before / 12) %>%
+  group_by(New_Phase, Indication_Type) %>%
+  summarise(
+    n            = dplyr::n(),
+    mean_years   = mean(years_before, na.rm = TRUE),
+    median_years = median(years_before, na.rm = TRUE),
+    q1_years     = quantile(years_before, 0.25, na.rm = TRUE, names = FALSE),
+    q3_years     = quantile(years_before, 0.75, na.rm = TRUE, names = FALSE),
+    .groups = "drop"
+  ) %>%
+  arrange(
+    factor(New_Phase, levels = c("Phase 1","Phase 2","Phase 3")),
+    Indication_Type
+  )
+
+write_xlsx(list(phase_type_summary_years = phase_type_summary_years),
+           "summary_years_by_phase_and_type.xlsx")
+
+write.csv(df_datemodified, "df_datemodified.csv", row.names =FALSE)
+```
+
+
+```{r clinical trial start times for neoplasm only trials}
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+
+# Neoplasm only
+df_q <- df_datemodified %>%
+  filter(
+    Indication_Group == "Neoplasm",
+    New_Phase %in% c("Phase 1","Phase 2","Phase 3"),
+    !is.na(StartDate), !is.na(ApprovalDate),
+    StartDate <= ApprovalDate
+  ) %>%
+  mutate(
+    months_before = time_length(interval(StartDate, ApprovalDate), "months"),
+    q_before      = ceiling(months_before / 3),
+    years_before  = q_before / 4
+  )
+
+# Collapse everything beyond 20 years into one bin at 21
+q_counts <- df_q %>%
+  mutate(years_capped = if_else(years_before > 20, 21, years_before)) %>%
+  group_by(New_Phase, Indication_Type, years_capped) %>%
+  summarise(n = n(), .groups = "drop")
+
+# Axis breaks and labels
+breaks_years <- c(21, 15, 10, 5, 1, 0)
+labels_years <- c(">20","15","10","5","1","A")
+
+p_neoplasm <- ggplot(
+  q_counts,
+  aes(x = years_capped, y = n, color = Indication_Type, group = Indication_Type)
+) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  geom_smooth(method = "loess", se = FALSE, span = 0.6, linewidth = 1.1) +
+  facet_wrap(~ New_Phase, nrow = 1) +
+  scale_x_reverse(
+    limits = c(21, 0),
+    breaks = breaks_years,
+    labels = labels_years,
+    expand = expansion(mult = c(0.01, 0.02))
+  ) +
+  geom_vline(xintercept = 1, color = "grey70", linewidth = 0.6) +
+  labs(
+    title = "Neoplasm trials. quarterly starts vs years prior to approval",
+    x = "years prior to approval",
+    y = "# clinical trials initiated per quarter",
+    color = NULL
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    panel.grid = element_blank(),
+    strip.text = element_text(face = "bold"),
+    axis.title.x = element_text(size = 22),
+    axis.text.y  = element_text(size = 18),
+    axis.title.y = element_text(size = 22),
+    axis.text.x  = element_text(size = 18))
+p_neoplasm
+ggsave("neoplasm_quarter_curves_faceted_phase.png", p_neoplasm, width = 14, height = 10, dpi = 300)
+
+
+# Packages
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(writexl)
+
+# 1) Filter and compute quarters before approval
+df_q <- df_datemodified %>%
+  filter(
+    Indication_Group == "Neoplasm",
+    New_Phase %in% c("Phase 1","Phase 2","Phase 3"),
+    !is.na(StartDate), !is.na(ApprovalDate),
+    StartDate <= ApprovalDate
+  ) %>%
+  mutate(
+    months_before = time_length(interval(StartDate, ApprovalDate), "months"),
+    q_before      = ceiling(months_before / 3),                # quarters
+    q_capped      = if_else(q_before > 80, 81L, as.integer(q_before)),
+    year_from_q   = if_else(q_capped == 81L, 21L, as.integer(q_capped / 4))  # 4 qtrs = 1 yr
+  )
+
+# 2) Raw quarterly counts
+counts_raw <- df_q %>%
+  count(New_Phase, Indication_Type, q_capped, name = "n")
+
+# 3) Pad so every Phase × Indication_Type has quarters 0..81
+grid_full <- expand_grid(
+  New_Phase = sort(unique(df_q$New_Phase)),
+  Indication_Type = sort(unique(df_q$Indication_Type)),
+  q_capped = 0:81
+)
+
+counts_quarterly_padded <- grid_full %>%
+  left_join(counts_raw, by = c("New_Phase","Indication_Type","q_capped")) %>%
+  mutate(n = if_else(is.na(n), 0L, n),
+         year_from_q = if_else(q_capped == 81L, 21L, as.integer(q_capped / 4))) %>%
+  arrange(New_Phase, Indication_Type, desc(q_capped))
+
+# 4) Collapse to yearly bins for quick plots
+counts_yearly_collapsed <- counts_quarterly_padded %>%
+  group_by(New_Phase, Indication_Type, year_from_q) %>%
+  summarise(n = sum(n), .groups = "drop") %>%
+  arrange(New_Phase, Indication_Type, desc(year_from_q))
+
+# 5) Helpful lookup table for Excel axes
+quarter_year_lookup <- tibble(
+  Quarter = 0:81,
+  Year    = if_else(0:81 == 81, 21L, as.integer((0:81) / 4)),
+  Axis_Label = if_else(Quarter == 0, "A", as.character(Year))  # use "A" for approval if you want
+)
+
+# 6) Write all to one workbook
+write_xlsx(
+  list(
+    quarterly_padded   = counts_quarterly_padded,
+    yearly_collapsed   = counts_yearly_collapsed,
+    quarter_year_lookup = quarter_year_lookup
+  ),
+  "neoplasm_quarterly_counts_FIXED.xlsx"
+)
+
+cat("Wrote neoplasm_quarterly_counts_FIXED.xlsx\n")
+# --- Summaries in YEARS ---
+
+
+# By Phase × Indication_Type
+phase_type_summary_years_neoplasm <- df_q %>%
+  mutate(years_before = months_before / 12) %>%
+  group_by(New_Phase, Indication_Type) %>%
+  summarise(
+    n            = dplyr::n(),
+    mean_years   = mean(years_before, na.rm = TRUE),
+    median_years = median(years_before, na.rm = TRUE),
+    q1_years     = quantile(years_before, 0.25, na.rm = TRUE, names = FALSE),
+    q3_years     = quantile(years_before, 0.75, na.rm = TRUE, names = FALSE),
+    .groups = "drop"
+  ) %>%
+  arrange(
+    factor(New_Phase, levels = c("Phase 1","Phase 2","Phase 3")),
+    Indication_Type
+  )
+write.csv(phase_type_summary_years_neoplasm,"phase_type_summary_neoplasm_yearspriortoapproval.csv", row.names =FALSE)
+# aggregated by Phase × Quarter
+library(dplyr)
+library(ggplot2)
+library(patchwork)
+
+plot_quarter <- counts_quarterly_padded %>%
+  group_by(New_Phase, Indication_Type, q_capped) %>%
+  summarise(n = sum(n), .groups = "drop")
+
+year_breaks_q <- c(0, 16, 32, 48, 64, 80)   # quarters
+year_labels   <- c(0, 4, 8, 12, 16, 20)     # years
+
+make_phase_plot <- function(phase_label, data = plot_quarter){
+  ggplot(
+    dplyr::filter(data, New_Phase == phase_label),
+    aes(x = q_capped, y = n, color = Indication_Type, group = Indication_Type)
+  ) +
+    geom_point(size = 2.5, alpha = 0.9) +
+    geom_smooth(method = "loess", se = FALSE, span = 0.2, linewidth = 1.8) +
+    scale_x_reverse(
+      limits = c(81, 0),
+      breaks = year_breaks_q,
+      labels = year_labels,
+      expand = expansion(mult = c(0.01, 0.02))
+    ) +
+    scale_y_continuous(
+      limits = c(0, 100),
+      breaks = seq(0, 100, 20),
+      expand = expansion(mult = c(0, 0)),
+      position = "right"
+    ) +
+    scale_color_manual(values = c("Alternative" = "steelblue", "Lead" = "darkorange")) +
+    labs(x = "years prior to approval", y = "# trials started per quarter", color = NULL) +
+    theme_classic(base_size = 18) +
+    theme(
+      panel.grid = element_blank(),
+      axis.title.y = element_blank(),
+      axis.text.y.left   = element_blank(),
+      axis.ticks.y.left  = element_blank(),
+      axis.line.y.left   = element_blank(),
+      axis.line.y.right  = element_line(),
+      axis.ticks.y.right = element_line(),
+      axis.ticks.length.y = unit(4, "pt"),
+      axis.text.y.right = element_text(margin = margin(l = 6)),
+      plot.margin = margin(12, 18, 12, 12)
+    )
+}
+
+
+p1 <- make_phase_plot("Phase 1")
+p2 <- make_phase_plot("Phase 2")
+p3 <- make_phase_plot("Phase 3")
+
+final_width_in  <- 10
+final_height_in <- 6
+dpi_val <- 300
+
+p1_raster <- p1 + theme(
+  axis.text.x = element_text(size = 32),
+  axis.text.y.right = element_text(size = 32)
+)
+
+ggsave("Neoplasm_starttime_quarterP1.png",
+       plot = p1_raster,
+       width = final_width_in, height = final_height_in,
+       dpi = dpi_val, units = "in", bg = "white")
+p2_raster <- p2 + theme(
+  axis.text.x = element_text(size = 32),
+  axis.text.y.right = element_text(size = 32)
+)
+
+ggsave("Neoplasm_starttime_quarterP2.png",
+       plot = p2_raster,
+       width = final_width_in, height = final_height_in,
+       dpi = dpi_val, units = "in", bg = "white")
+p3_raster <- p3 + theme(
+  axis.text.x = element_text(size = 32),
+  axis.text.y.right = element_text(size = 32)
+)
+
+ggsave("Neoplasm_starttime_quarterP3.png",
+       plot = p3_raster,
+       width = final_width_in, height = final_height_in,
+       dpi = dpi_val, units = "in", bg = "white")
+# combine the plots if wanted
+combined_quarterly <-
+ (p1 | p2 | p3) +
+ plot_layout(guides = "collect") +
+  plot_annotation(theme = theme(legend.position = "bottom"))
+
+combined_quarterly
+
+ggsave("Neoplasm_starttime_quarter.jpg", combined_quarterly,width=18,height=14,dpi=300)
+
+
+#summarise by Interquartile and make a plot
+# 1) Filter and compute quarters before approval
+df_q <- df_datemodified %>%
+  filter(
+    Indication_Group == "Neoplasm",
+    New_Phase %in% c("Phase 1","Phase 2","Phase 3"),
+    !is.na(StartDate), !is.na(ApprovalDate),
+    StartDate <= ApprovalDate
+  ) %>%
+  mutate(
+    months_before = time_length(interval(StartDate, ApprovalDate), "months"),
+    q_before      = ceiling(months_before / 3),                # quarters
+    q_capped      = if_else(q_before > 80, 81L, as.integer(q_before)),
+    year_from_q   = if_else(q_capped == 81L, 21L, as.integer(q_capped / 4))  # 4 qtrs = 1 yr
+  )
+
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(lubridate)
+library(grid)  # for unit()
+
+# 1) Prep
+df_q2 <- df_q %>%
+  mutate(years_capped = if_else(q_before > 80, 21, q_before / 4))
+
+# 2) Counts for curves
+q_counts <- df_q2 %>%
+  group_by(New_Phase, Indication_Type, years_capped) %>%
+  summarise(n = n(), .groups = "drop")
+
+# 3) Quartiles from trial rows (unweighted)
+phase_qs_wide <- df_q2 %>%
+  group_by(New_Phase, Indication_Type) %>%
+  summarise(
+    q1     = quantile(years_capped, 0.25, na.rm = TRUE),
+    median = quantile(years_capped, 0.50, na.rm = TRUE),
+    q3     = quantile(years_capped, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 4) Global y anchors for IQR bars, map by Indication_Type
+y_max <- max(q_counts$n, na.rm = TRUE)
+y_pos_map <- c("Lead" = y_max * 1.2,
+               "Alternative" = y_max * 1.1)
+
+phase_qs_bars <- phase_qs_wide %>%
+  mutate(y = y_pos_map[as.character(Indication_Type)])
+
+# 5) Plot function per phase
+make_phase_plot <- function(phase_label, data = q_counts){
+
+  q_phase  <- dplyr::filter(data, New_Phase == phase_label)
+  qs_phase <- dplyr::filter(phase_qs_bars, New_Phase == phase_label)
+
+  # local y positions based on this phase peak
+  y_max_local <- max(q_phase$n, na.rm = TRUE)
+  y_pos_map_local <- c("Lead" = y_max_local * 1.2,
+                       "Alternative" = y_max_local * 1.1)
+  qs_phase <- qs_phase %>%
+    dplyr::mutate(y = y_pos_map_local[as.character(Indication_Type)])
+
+  ggplot(q_phase,
+         aes(x = years_capped, y = n, color = Indication_Type, group = Indication_Type)) +
+    geom_point(size = 3, alpha = 0.9) +
+    geom_smooth(method = "loess", se = FALSE, span = 0.2, linewidth = 3) +
+    # IQR bar
+    geom_segment(
+      data = qs_phase,
+      aes(x = q1, xend = q3, y = y, yend = y, color = Indication_Type),
+      inherit.aes = FALSE, linewidth = 1.4, alpha = 0.95
+    ) +
+    # median tick
+    geom_segment(
+      data = qs_phase,
+      aes(x = median, xend = median,
+          y = y - 0.02 * y_max_local, yend = y + 0.02 * y_max_local,
+          color = Indication_Type),
+      inherit.aes = FALSE, linewidth = 1.4
+    ) +
+    scale_x_reverse(
+      limits = c(21, 0),
+      breaks = seq(0, 20, 4),
+      labels = seq(0, 20, 4),
+      expand = expansion(mult = c(0.01, 0.02))
+    ) +
+    scale_y_continuous(
+      limits = c(0, max(100, y_max_local)),
+      breaks = seq(0, max(100, y_max_local), 20),
+      expand = expansion(mult = c(0, 0)),
+      position = "right"
+    ) +
+    scale_color_manual(values = c("Alternative" = "steelblue", "Lead" = "darkorange")) +
+    labs(x = "years prior to approval", y = "# trials started per quarter", color = NULL) +
+    theme_classic(base_size = 18) +
+    theme(
+      panel.grid = element_blank(),
+      axis.title.y = element_blank(),
+      axis.text.y.left   = element_blank(),
+      axis.ticks.y.left  = element_blank(),
+      axis.line.y.left   = element_blank(),
+      axis.line.y.right  = element_line(),
+      axis.ticks.y.right = element_line(),
+      axis.ticks.length.y = unit(4, "pt"),
+      axis.text.y.right = element_text(margin = margin(l = 6)),
+      plot.margin = margin(12, 18, 12, 12)
+    )
+}
+
+# 6) Build panels
+p1 <- make_phase_plot("Phase 1")
+p2 <- make_phase_plot("Phase 2")
+p3 <- make_phase_plot("Phase 3")
+
+
+final_width_in  <- 10
+final_height_in <- 6
+dpi_val <- 300
+
+p1_raster <- p1 + theme(
+  axis.text.x = element_text(size = 32),
+  axis.text.y.right = element_text(size = 32)
+)
+
+ggsave("Neoplasm_starttime_quarterP1horizontalIQR.png",
+       plot = p1_raster,
+       width = final_width_in, height = final_height_in,
+       dpi = dpi_val, units = "in", bg = "white")
+p2_raster <- p2 + theme(
+  axis.text.x = element_text(size = 32),
+  axis.text.y.right = element_text(size = 32)
+)
+
+ggsave("Neoplasm_starttime_quarterP2horizontalIQR.png",
+       plot = p2_raster,
+       width = final_width_in, height = final_height_in,
+       dpi = dpi_val, units = "in", bg = "white")
+p3_raster <- p3 + theme(
+  axis.text.x = element_text(size = 32),
+  axis.text.y.right = element_text(size = 32)
+)
+
+ggsave("Neoplasm_starttime_quarterP3horizontalIQR.png",
+       plot = p3_raster,
+       width = final_width_in, height = final_height_in,
+       dpi = dpi_val, units = "in", bg = "white")
+
+```
+```{r Clinical trial start times for non neoplasm indication}
+# Non Neoplasm only
+df_q <- df_datemodified %>%
+  filter(
+    Indication_Group == "Non-Neoplasm",
+    New_Phase %in% c("Phase 1","Phase 2","Phase 3"),
+    !is.na(StartDate), !is.na(ApprovalDate),
+    StartDate <= ApprovalDate
+  ) %>%
+  mutate(
+    months_before = time_length(interval(StartDate, ApprovalDate), "months"),
+    q_before      = ceiling(months_before / 3),
+    years_before  = q_before / 4
+  )
+
+# Collapse everything beyond 20 years into one bin at 21
+q_counts <- df_q %>%
+  mutate(years_capped = if_else(years_before > 20, 21, years_before)) %>%
+  group_by(New_Phase, Indication_Type, years_capped) %>%
+  summarise(n = n(), .groups = "drop")
+
+# Axis breaks and labels
+breaks_years <- c(21, 15, 10, 5, 1, 0)
+labels_years <- c(">20","15","10","5","1","A")
+
+p_nonneoplasm <- ggplot(
+  q_counts,
+  aes(x = years_capped, y = n, color = Indication_Type, group = Indication_Type)
+) +
+  geom_point(size = 1.5, alpha = 0.9) +
+  geom_smooth(method = "loess", se = FALSE, span = 0.6, linewidth = 1.1) +
+  facet_wrap(~ New_Phase, nrow = 1) +
+  scale_x_reverse(
+    limits = c(21, 0),
+    breaks = breaks_years,
+    labels = labels_years,
+    expand = expansion(mult = c(0.01, 0.02))
+  ) +
+  geom_vline(xintercept = 1, color = "grey70", linewidth = 0.6) +
+  labs(
+    title = "Non Neoplasm trials. quarterly starts vs years prior to approval",
+    x = "years prior to approval",
+    y = "# clinical trials initiated per quarter",
+    color = NULL
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    panel.grid = element_blank(),
+    strip.text = element_text(face = "bold"),
+    axis.title.x = element_text(size = 22),
+    axis.text.y  = element_text(size = 18),
+    axis.title.y = element_text(size = 22),
+    axis.text.x  = element_text(size = 18))
+p_nonneoplasm
+ggsave("nonneoplasm_quarter_curves_faceted_phase.png", p_nonneoplasm,width = 14, height = 10, dpi = 300)
+
+
+#export data in excel
+
+# 1) Filter and compute quarters before approval
+df_q <- df_datemodified %>%
+  filter(
+    Indication_Group == "Non-Neoplasm",
+    New_Phase %in% c("Phase 1","Phase 2","Phase 3"),
+    !is.na(StartDate), !is.na(ApprovalDate),
+    StartDate <= ApprovalDate
+  ) %>%
+  mutate(
+    months_before = time_length(interval(StartDate, ApprovalDate), "months"),
+    q_before      = ceiling(months_before / 3),                # quarters
+    q_capped      = if_else(q_before > 80, 81L, as.integer(q_before)),
+    year_from_q   = if_else(q_capped == 81L, 21L, as.integer(q_capped / 4))  # 4 qtrs = 1 yr
+  )
+
+# 2) Raw quarterly counts
+counts_raw <- df_q %>%
+  count(New_Phase, Indication_Type, q_capped, name = "n")
+
+# 3) Pad so every Phase × Indication_Type has quarters 0..81
+grid_full <- expand_grid(
+  New_Phase = sort(unique(df_q$New_Phase)),
+  Indication_Type = sort(unique(df_q$Indication_Type)),
+  q_capped = 0:81
+)
+
+counts_quarterly_padded <- grid_full %>%
+  left_join(counts_raw, by = c("New_Phase","Indication_Type","q_capped")) %>%
+  mutate(n = if_else(is.na(n), 0L, n),
+         year_from_q = if_else(q_capped == 81L, 21L, as.integer(q_capped / 4))) %>%
+  arrange(New_Phase, Indication_Type, desc(q_capped))
+
+# 4) Collapse to yearly bins for quick plots
+counts_yearly_collapsed <- counts_quarterly_padded %>%
+  group_by(New_Phase, Indication_Type, year_from_q) %>%
+  summarise(n = sum(n), .groups = "drop") %>%
+  arrange(New_Phase, Indication_Type, desc(year_from_q))
+
+# 5) Helpful lookup table for Excel axes
+quarter_year_lookup <- tibble(
+  Quarter = 0:81,
+  Year    = if_else(0:81 == 81, 21L, as.integer((0:81) / 4)),
+  Axis_Label = if_else(Quarter == 0, "A", as.character(Year))  # use "A" for approval if you want
+)
+
+# 6) Write all to one workbook
+write_xlsx(
+  list(
+    quarterly_padded   = counts_quarterly_padded,
+    yearly_collapsed   = counts_yearly_collapsed,
+    quarter_year_lookup = quarter_year_lookup
+  ),
+  "nonneoplasm_quarterly_counts_FIXED.xlsx"
+)
+
+cat("Wrote nonneoplasm_quarterly_counts_FIXED.xlsx\n")
+# By Phase × Indication_Type
+phase_type_summary_years <- df_q %>%
+  mutate(years_before = months_before / 12) %>%
+  group_by(New_Phase, Indication_Type) %>%
+  summarise(
+    n            = dplyr::n(),
+    mean_years   = mean(years_before, na.rm = TRUE),
+    median_years = median(years_before, na.rm = TRUE),
+    q1_years     = quantile(years_before, 0.25, na.rm = TRUE, names = FALSE),
+    q3_years     = quantile(years_before, 0.75, na.rm = TRUE, names = FALSE),
+    .groups = "drop"
+  ) %>%
+  arrange(
+    factor(New_Phase, levels = c("Phase 1","Phase 2","Phase 3")),
+    Indication_Type
+  )
+
+plot_quarter <- counts_quarterly_padded %>%
+  group_by(New_Phase, Indication_Type, q_capped) %>%
+  summarise(n = sum(n), .groups = "drop")
+
+year_breaks_q <- c(0, 16, 32, 48, 64, 80)   # quarters
+year_labels   <- c(0, 4, 8, 12, 16, 20)     # years
+
+make_phase_plot <- function(phase_label, data = plot_quarter){
+  ggplot(
+    dplyr::filter(data, New_Phase == phase_label),
+    aes(x = q_capped, y = n, color = Indication_Type, group = Indication_Type)
+  ) +
+    geom_point(size = 2.5, alpha = 0.9) +
+    geom_smooth(method = "loess", se = FALSE, span = 0.2, linewidth = 1.8) +
+    scale_x_reverse(
+      limits = c(81, 0),
+      breaks = year_breaks_q,
+      labels = year_labels,
+      expand = expansion(mult = c(0.01, 0.02))
+    ) +
+    scale_y_continuous(
+      limits = c(0, 100),
+      breaks = seq(0, 100, 20),
+      expand = expansion(mult = c(0, 0)),
+      position = "right"
+    ) +
+    scale_color_manual(values = c("Alternative" = "steelblue", "Lead" = "darkorange")) +
+    labs(x = "years prior to approval", y = "# trials started per quarter", color = NULL) +
+    theme_classic(base_size = 18) +
+    theme(
+      panel.grid = element_blank(),
+      axis.title.y = element_blank(),
+      axis.text.y.left   = element_blank(),
+      axis.ticks.y.left  = element_blank(),
+      axis.line.y.left   = element_blank(),
+      axis.line.y.right  = element_line(),
+      axis.ticks.y.right = element_line(),
+      axis.ticks.length.y = unit(4, "pt"),
+      axis.text.y.right = element_text(margin = margin(l = 6)),
+      plot.margin = margin(12, 18, 12, 12)
+    )
+}
+
+
+p1 <- make_phase_plot("Phase 1")
+p2 <- make_phase_plot("Phase 2")
+p3 <- make_phase_plot("Phase 3")
+
+final_width_in  <- 10
+final_height_in <- 6
+dpi_val <- 300
+
+p1_raster <- p1 + theme(
+  axis.text.x = element_text(size = 32),
+  axis.text.y.right = element_text(size = 32)
+)
+
+ggsave("NonNeoplasm_starttime_quarterP1.png",
+       plot = p1_raster,
+       width = final_width_in, height = final_height_in,
+       dpi = dpi_val, units = "in", bg = "white")
+p2_raster <- p2 + theme(
+  axis.text.x = element_text(size = 32),
+  axis.text.y.right = element_text(size = 32)
+)
+
+ggsave("NonNeoplasm_starttime_quarterP2.png",
+       plot = p2_raster,
+       width = final_width_in, height = final_height_in,
+       dpi = dpi_val, units = "in", bg = "white")
+p3_raster <- p3 + theme(
+  axis.text.x = element_text(size = 32),
+  axis.text.y.right = element_text(size = 32)
+)
+
+ggsave("NonNeoplasm_starttime_quarterP3.png",
+       plot = p3_raster,
+       width = final_width_in, height = final_height_in,
+       dpi = dpi_val, units = "in", bg = "white")
+
+
+# sumamrise by interquartile
+# 1) Filter and compute quarters before approval
+df_q <- df_datemodified %>%
+  filter(
+    Indication_Group == "Non-Neoplasm",
+    New_Phase %in% c("Phase 1","Phase 2","Phase 3"),
+    !is.na(StartDate), !is.na(ApprovalDate),
+    StartDate <= ApprovalDate
+  ) %>%
+  mutate(
+    months_before = time_length(interval(StartDate, ApprovalDate), "months"),
+    q_before      = ceiling(months_before / 3),                # quarters
+    q_capped      = if_else(q_before > 80, 81L, as.integer(q_before)),
+    year_from_q   = if_else(q_capped == 81L, 21L, as.integer(q_capped / 4))  # 4 qtrs = 1 yr
+  )
+
+# 1) Prep
+df_q2 <- df_q %>%
+  mutate(years_capped = if_else(q_before > 80, 21, q_before / 4))
+
+# 2) Counts for curves
+q_counts <- df_q2 %>%
+  group_by(New_Phase, Indication_Type, years_capped) %>%
+  summarise(n = n(), .groups = "drop")
+
+# 3) Quartiles from trial rows (unweighted)
+phase_qs_wide <- df_q2 %>%
+  group_by(New_Phase, Indication_Type) %>%
+  summarise(
+    q1     = quantile(years_capped, 0.25, na.rm = TRUE),
+    median = quantile(years_capped, 0.50, na.rm = TRUE),
+    q3     = quantile(years_capped, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 4) Global y anchors for IQR bars, map by Indication_Type
+y_max <- max(q_counts$n, na.rm = TRUE)
+y_pos_map <- c("Lead" = y_max * 1.1,
+               "Alternative" = y_max * 1.0)
+
+phase_qs_bars <- phase_qs_wide %>%
+  mutate(y = y_pos_map[as.character(Indication_Type)])
+
+# 5) Plot function per phase
+make_phase_plot <- function(phase_label, data = q_counts){
+
+  q_phase  <- dplyr::filter(data, New_Phase == phase_label)
+  qs_phase <- dplyr::filter(phase_qs_bars, New_Phase == phase_label)
+
+  # local y positions based on this phase peak
+  y_max_local <- max(q_phase$n, na.rm = TRUE)
+  y_pos_map_local <- c("Lead" = y_max_local * 1.1,
+                       "Alternative" = y_max_local * 1.0)
+  qs_phase <- qs_phase %>%
+    dplyr::mutate(y = y_pos_map_local[as.character(Indication_Type)])
+
+  ggplot(q_phase,
+         aes(x = years_capped, y = n, color = Indication_Type, group = Indication_Type)) +
+    geom_point(size = 3, alpha = 0.9) +
+    geom_smooth(method = "loess", se = FALSE, span = 0.2, linewidth = 3) +
+    # IQR bar
+    geom_segment(
+      data = qs_phase,
+      aes(x = q1, xend = q3, y = y, yend = y, color = Indication_Type),
+      inherit.aes = FALSE, linewidth = 1.4, alpha = 0.95
+    ) +
+    # median tick
+    geom_segment(
+      data = qs_phase,
+      aes(x = median, xend = median,
+          y = y - 0.02 * y_max_local, yend = y + 0.02 * y_max_local,
+          color = Indication_Type),
+      inherit.aes = FALSE, linewidth = 1.4
+    ) +
+    scale_x_reverse(
+      limits = c(21, 0),
+      breaks = seq(0, 20, 4),
+      labels = seq(0, 20, 4),
+      expand = expansion(mult = c(0.01, 0.02))
+    ) +
+    scale_y_continuous(
+      limits = c(0, max(100, y_max_local)),
+      breaks = seq(0, max(100, y_max_local), 20),
+      expand = expansion(mult = c(0, 0)),
+      position = "right"
+    ) +
+    scale_color_manual(values = c("Alternative" = "steelblue", "Lead" = "darkorange")) +
+    labs(x = "years prior to approval", y = "# trials started per quarter", color = NULL) +
+    theme_classic(base_size = 18) +
+    theme(
+      panel.grid = element_blank(),
+      axis.title.y = element_blank(),
+      axis.text.y.left   = element_blank(),
+      axis.ticks.y.left  = element_blank(),
+      axis.line.y.left   = element_blank(),
+      axis.line.y.right  = element_line(),
+      axis.ticks.y.right = element_line(),
+      axis.ticks.length.y = unit(4, "pt"),
+      axis.text.y.right = element_text(margin = margin(l = 6)),
+      plot.margin = margin(12, 18, 12, 12)
+    )
+}
+
+# 6) Build panels
+p1 <- make_phase_plot("Phase 1")
+p2 <- make_phase_plot("Phase 2")
+p3 <- make_phase_plot("Phase 3")
+
+
+final_width_in  <- 10
+final_height_in <- 6
+dpi_val <- 300
+
+p1_raster <- p1 + theme(
+  axis.text.x = element_text(size = 32),
+  axis.text.y.right = element_text(size = 32)
+)
+
+ggsave("NonNeoplasm_starttime_quarterP1horizontalIQR.png",
+       plot = p1_raster,
+       width = final_width_in, height = final_height_in,
+       dpi = dpi_val, units = "in", bg = "white")
+p2_raster <- p2 + theme(
+  axis.text.x = element_text(size = 32),
+  axis.text.y.right = element_text(size = 32)
+)
+
+ggsave("NonNeoplasm_starttime_quarterP2horizontalIQR.png",
+       plot = p2_raster,
+       width = final_width_in, height = final_height_in,
+       dpi = dpi_val, units = "in", bg = "white")
+p3_raster <- p3 + theme(
+  axis.text.x = element_text(size = 32),
+  axis.text.y.right = element_text(size = 32)
+)
+
+ggsave("NonNeoplasm_starttime_quarterP3horizontalIQR.png",
+       plot = p3_raster,
+       width = final_width_in, height = final_height_in,
+       dpi = dpi_val, units = "in", bg = "white")
+
+
+```
+
+```{r pivotal trials check}
+
+# Keep the latest ImputedCompletionDate per trial
+Uniquetrials_dedup <- Uniquetrials %>%
+  group_by(NCTId) %>%
+  summarise(
+    drugid = first(drugid),
+    ApprovalDate = first(ApprovalDate),
+    LatestCompletionDate = max(ImputedCompletionDate, na.rm = TRUE)
+  )
+library(dplyr)
+
+Uniquetrials_tagged <- Uniquetrials %>%
+  mutate(
+    IsPivotal = if_else(
+      NCTId %in% pivotal_trials_expanded$FDA_trials,
+      1,
+      0
+    )
+  )
+
+
+# Now split again
+Finished <- Uniquetrials_dedup %>%
+  filter(LatestCompletionDate <= ApprovalDate)
+
+NotFinished <- Uniquetrials_dedup %>%
+  filter(LatestCompletionDate > ApprovalDate)
+
+# Check overlap
+overlap_ids <- intersect(unique(Finished$NCTId), unique(NotFinished$NCTId))
+cat("Number of NCTIds in BOTH after deduping:", length(overlap_ids), "\n")
+
+library(tidyr)
+pivotal_trials <- read.csv("C:\\Users\\parya\\ScienceandIndustry Dropbox\\Payal Arya\\RESEARCH DOTD Clinical Trials\\Working\\Payal Arya\\clinical_trial_preapproval\\pivotaltrials_NCTID.csv")
+ write.csv(pivotal_trials_expanded, "pivotal_trials_expanded.csv")
+
+# Step 1: Get distinct NCTIds from each dataset
+pivotal_ids <- unique(pivotal_trials_expanded$FDA_trials)
+reference_ids <- unique(Finished$NCTId)
+
+# Step 2: Find how many reference trials are pivotal
+matched_ids <- reference_ids[reference_ids %in% pivotal_ids]
+
+# Step 3: Compute percentage of pivotal trials in the reference set
+total_reference_ids <- length(reference_ids)
+num_matched <- length(matched_ids)
+percent_matched <- num_matched / total_reference_ids * 100
+
+# Step 4: Print results
+cat("Pivotal NCTIds in Finished dataset:", num_matched, "out of", total_reference_ids, "\n")
+cat("Percentage of Finished trials that are pivotal:", round(percent_matched, 2), "%\n")
+
+length(pivotal_ids)
+
+#check if %of pivotal trials in TrialsStartedandNOTFinishedbeforeapproval
+
+
+# Step 1: Get distinct NCTIds from each dataset
+pivotal_ids <- unique(pivotal_trials_expanded$FDA_trials)
+reference_ids <- unique(NotFinished$NCTId)
+
+# Step 2: Count how many NCTIds in the reference set are from pivotal trials
+matched_ids <- reference_ids[reference_ids %in% pivotal_ids]
+
+# Step 3: Compute percentage relative to the reference set (i.e., NOT-finished trials)
+total_reference_ids <- length(reference_ids)
+num_matched <- length(matched_ids)
+percent_matched <- num_matched / total_reference_ids * 100
+
+# Step 4: Print results
+cat("Pivotal NCTIds in NOT-finished dataset:", num_matched, "out of", total_reference_ids, "\n")
+cat("Percentage of NOT-finished trials that are pivotal:", round(percent_matched, 2), "%\n")
+
+unmatched_ids <- pivotal_ids[!(pivotal_ids %in% finished_ids | pivotal_ids %in% not_finished_ids)]
+num_unmatched <- length(unmatched_ids)
+cat("Number of pivotal trials not found in either Finished or Not-Finished dataset:", num_unmatched, "\n")
+
+# 1️⃣ Distinct pivotal IDs
+pivotal_ids <- unique(pivotal_trials_expanded$FDA_trials)
+finished_ids <- unique(TrialsStartedandFinishedbeforeapproval$NCTId)
+not_finished_ids <- unique(TrialsStartedandNOTFinishedbeforeapproval$NCTId)
+
+# 2️⃣ Pivotal trials in both
+in_both <- pivotal_ids[
+  pivotal_ids %in% finished_ids & pivotal_ids %in% not_finished_ids
+]
+num_in_both <- length(in_both)
+
+cat("Number of pivotal trials in BOTH Finished and Not-Finished:", num_in_both, "\n")
+
+# 3️⃣ Optional: save list to CSV
+in_both_df <- data.frame(NCTId = in_both)
+write.csv(in_both_df, "PivotalTrials_in_BothDatasets.csv", row.names = FALSE)
+
+library(dplyr)
+
+# 1️⃣ Identify pivotal trials in both sets
+in_both <- pivotal_ids[
+  pivotal_ids %in% finished_ids & pivotal_ids %in% not_finished_ids
+]
+
+# 2️⃣ Get their completion dates from each dataset
+finished_subset <- Finished %>%
+  filter(NCTId %in% in_both) %>%
+  dplyr::select(NCTId, ImputedCompletionDate) %>%
+  rename(Completion_Finished = ImputedCompletionDate)
+
+notfinished_subset <- NotFinished %>%
+  filter(NCTId %in% in_both) %>%
+  dplyr::select(NCTId, ImputedCompletionDate) %>%
+  rename(Completion_NotFinished = ImputedCompletionDate)
+
+# 3️⃣ Join them together
+compare_dates <- finished_subset %>%
+  left_join(notfinished_subset, by = "NCTId") %>%
+  mutate(
+    Same_Date = Completion_Finished == Completion_NotFinished
+  )
+
+# 4️⃣ Count how many have same vs different dates
+same_count <- sum(compare_dates$Same_Date, na.rm = TRUE)
+diff_count <- sum(!compare_dates$Same_Date, na.rm = TRUE)
+
+cat("Trials in BOTH datasets:", nrow(compare_dates), "\n")
+cat("Same ImputedCompletionDate:", same_count, "\n")
+cat("Different ImputedCompletionDate:", diff_count, "\n")
+
+# 5️⃣ Optional: view differences
+compare_dates
+
+# Make sure pivotal_trials_expanded has both NCTId (FDA_trials) and drugid
+unmatched_df <- pivotal_trials_expanded %>%
+  filter(FDA_trials %in% unmatched_ids) %>%
+  dplyr::select(NCTId = FDA_trials, drugid) %>%
+  distinct()
+
+# Save to CSV
+write.csv(unmatched_df,
+          "C:\\Users\\parya\\ScienceandIndustry Dropbox\\Payal Arya\\RESEARCH DOTD Clinical Trials\\Working\\Payal Arya\\clinical_trial_preapproval\\unmatched_pivotal_trials.csv",
+          row.names = FALSE)
+
+cat("Unmatched pivotal trials written to CSV.\n")
+
+#358 drugs 
+
+# Step 1: Combine NCTIds from both trial datasets
+all_reference_ids <- 
+  unique(Uniquetrials$NCTId
+)
+
+# Step 2: Filter pivotal trials found in either dataset
+pivotal_in_either <- pivotal_trials_expanded %>%
+  filter(FDA_trials %in% all_reference_ids)
+
+# Step 3: Merge with Uniqutrials to get New_Phase
+pivotal_with_phase <- pivotal_in_either %>%
+  left_join(Uniquetrials %>% dplyr::select(NCTId, New_Phase), 
+            by = c("FDA_trials" = "NCTId"))
+
+# Step 4: Summarize by New_Phase
+phase_summary <- pivotal_with_phase %>%
+  group_by(New_Phase) %>%
+  summarise(Num_Trials = n(), .groups = "drop")
+
+# Step 5: View the results
+print(phase_summary)
+
+library(dplyr)
+library(readr)
+
+# --- 0) Inputs assumed from your code ---
+# Uniquetrials_dedup, Finished, NotFinished already created
+# pivotal_trials_expanded with column FDA_trials already loaded
+
+# --- 1) One phase per NCTId from original Uniquetrials ---
+# choose the modal phase per NCTId (ties broken by later phase order)
+phase_levels <- c("Phase 1","Phase 2","Phase 3")
+
+phase_map <- Uniquetrials %>%
+  filter(New_Phase %in% phase_levels) %>%
+  mutate(New_Phase = factor(New_Phase, levels = phase_levels)) %>%
+  count(NCTId, New_Phase, name = "n_rows") %>%
+  group_by(NCTId) %>%
+  arrange(desc(n_rows), New_Phase) %>%          # modal, then Phase 3 > 2 > 1 on ties
+  slice(1) %>%
+  ungroup() %>%
+  select(NCTId, New_Phase)
+
+# --- 2) Pivotal IDs and splits ---
+pivotal_ids      <- unique(pivotal_trials_expanded$FDA_trials)
+finished_ids     <- unique(Finished$NCTId)
+not_finished_ids <- unique(NotFinished$NCTId)
+
+piv_finished_ids     <- intersect(pivotal_ids, finished_ids)
+piv_not_finished_ids <- intersect(pivotal_ids, not_finished_ids)
+
+# --- 3) Phase summaries for pivotal trials in each bucket ---
+sum_phase <- function(ids, bucket_name){
+  phase_map %>%
+    filter(NCTId %in% ids) %>%
+    count(New_Phase, name = "n") %>%
+    mutate(bucket = bucket_name,
+           pct = round(100 * n / sum(n), 2)) %>%
+    arrange(New_Phase)
+}
+
+phase_finished     <- sum_phase(piv_finished_ids, "Finished")
+phase_not_finished <- sum_phase(piv_not_finished_ids, "NotFinished")
+
+phase_summary <- bind_rows(phase_finished, phase_not_finished)
+
+# --- 4) Wide view for quick compare ---
+phase_wide <- phase_summary %>%
+  select(bucket, New_Phase, n) %>%
+  tidyr::pivot_wider(names_from = bucket, values_from = n, values_fill = 0) %>%
+  arrange(New_Phase)
+
+# --- 5) Print results ---
+cat("\nPivotal trials by phase — Finished vs NotFinished (counts and %):\n")
+print(phase_summary)
+
+cat("\nSide-by-side counts:\n")
+print(phase_wide)
+
+# --- 6) Save CSVs ---
+write_csv(phase_summary, "pivotal_phase_summary_finished_vs_notfinished.csv")
+write_csv(phase_wide,    "pivotal_phase_counts_wide.csv")
+
+# Optional: sanity checks
+cat("\nSanity checks:\n")
+cat("Total pivotal in Finished:    ", length(piv_finished_ids), "\n")
+cat("Total pivotal in NotFinished: ", length(piv_not_finished_ids), "\n")
+cat("Overlap pivotal in BOTH:      ",
+    length(intersect(piv_finished_ids, piv_not_finished_ids)), "\n")
+
+```
+
+
+```{r}
+library(dplyr)
+library(lubridate)
+library(survival)
+library(survminer)
+
+library(dplyr)
+library(lubridate)
+library(tidyr)
+library(survival)
+library(survminer)
+
+# Helpers
+first_non_na <- function(x) { x <- x[!is.na(x)]; if (length(x)) min(x) else as.Date(NA) }
+
+# 1) Per-drug milestones
+milestones <- df_datemodified %>%
+  filter(New_Phase %in% c("Phase 2","Phase 3") | !is.na(ApprovalDate)) %>%
+  group_by(drugid) %>%
+  summarise(
+    p2_first  = first_non_na(StartDate[New_Phase == "Phase 2"]),
+    p3_first  = first_non_na(StartDate[New_Phase == "Phase 3"]),
+    approval  = first_non_na(ApprovalDate),
+    .groups = "drop"
+  )
+
+# 2) Build long table and compute times
+km_df <- milestones %>%
+  pivot_longer(c(p2_first, p3_first), names_to = "milestone", values_to = "start_date") %>%
+  mutate(
+    milestone = recode(milestone,
+                       p2_first = "Phase 2 to approval",
+                       p3_first = "Phase 3 to approval"),
+    time_years = as.numeric(difftime(approval, start_date, units = "days")) / 365.25
+  ) %>%
+  filter(!is.na(time_years), time_years >= 0)
+
+# 3) Quick sanity checks
+print(table(km_df$milestone, useNA = "ifany"))
+stopifnot(nrow(km_df) > 0)   # will error early if still empty
+
+# 4) KM fit. All events occurred, so status = 1 for every row.
+fit <- survfit(Surv(time_years, rep(1L, nrow(km_df))) ~ milestone, data = km_df)
+
+# 5) Plot with clear legend and percent y axis
+p <- ggsurvplot(
+  fit,
+  data = km_df,
+  fun = "pct",
+  conf.int = FALSE,
+  risk.table = TRUE,
+  risk.table.height = 0.22,
+  legend.title = NULL,
+  legend.labs = c("Phase 2 to approval","Phase 3 to approval"),
+  legend = "top",
+  xlab = "Years from milestone to approval",
+  ylab = "% of drugs not yet approved",
+  palette = c("darkorange","darkgreen"),
+  ggtheme = theme_classic(base_size = 16)
+)
+print(p)
+
+# 6) Medians and IQRs for reporting
+km_df %>%
+  group_by(milestone) %>%
+  summarise(
+    n = n(),
+    median_yrs = median(time_years),
+    q1 = quantile(time_years, .25),
+    q3 = quantile(time_years, .75),
+    .groups = "drop"
+  )
+
+library(ggplot2)
+cdf_plot <- km_df_complete %>%
+  ggplot(aes(x = time_years, color = milestone)) +
+  stat_ecdf(size = 1.2) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(
+    x = "Years from milestone to approval",
+    y = "% of drugs approved by time t",
+    color = NULL
+  ) +
+  scale_color_manual(values = c("darkorange","darkgreen")) +
+  theme_classic(base_size = 16)
+
+print(cdf_plot)
+```
+
+```{r}
+library(dplyr)
+library(lubridate)
+library(survival)
+library(survminer)
+library(broom)
+library(ggplot2)
+
+# --- Helpers ---
+first_date <- function(x) { x <- x[!is.na(x)]; if (length(x)) min(x) else as.Date(NA) }
+last_seen_for <- function(df) {
+  df %>%
+    transmute(drugid, any_date = pmax(ApprovalDate, CompletionDate, ImputedCompletionDate, StartDate, na.rm = TRUE)) %>%
+    group_by(drugid) %>%
+    summarise(censor_date = max(any_date, na.rm = TRUE), .groups = "drop")
+}
+
+# --- Milestones per drug ---
+milestones <- df_datemodified %>%
+  group_by(drugid) %>%
+  summarise(
+    p2_first  = first_date(StartDate[New_Phase == "Phase 2"]),
+    p3_first  = first_date(StartDate[New_Phase == "Phase 3"]),
+    approval  = first_date(ApprovalDate),
+    .groups = "drop"
+  ) %>%
+  left_join(last_seen_for(df_datemodified), by = "drugid")
+
+# --- Build two datasets ---
+# Phase 2 → Phase 3
+km_p2_to_p3 <- milestones %>%
+  filter(!is.na(p2_first)) %>%
+  mutate(
+    end_date   = if_else(!is.na(p3_first), p3_first, censor_date),
+    event      = as.integer(!is.na(p3_first)),
+    time_years = as.numeric(difftime(end_date, p2_first, units = "days")) / 365.25
+  ) %>%
+  filter(!is.na(end_date), time_years >= 0) %>%
+  mutate(curve = "Phase 2 to Phase 3")
+
+# Phase 3 → Approval
+km_p3_to_app <- milestones %>%
+  filter(!is.na(p3_first)) %>%
+  mutate(
+    end_date   = if_else(!is.na(approval), approval, censor_date),
+    event      = as.integer(!is.na(approval)),
+    time_years = as.numeric(difftime(end_date, p3_first, units = "days")) / 365.25
+  ) %>%
+  filter(!is.na(end_date), time_years >= 0) %>%
+  mutate(curve = "Phase 3 to Approval")
+
+km_combined$curve <- factor(
+  km_combined$curve,
+  levels = c("Phase 2 to Phase 3","Phase 3 to Approval")
+)
+fit_combined <- survfit(Surv(time_years, event) ~ curve, data = km_combined)
+p_combined <- ggsurvplot(
+  fit_combined, data = km_combined,
+  fun = "pct", conf.int = FALSE,
+  legend.title = NULL,
+  legend.labs = c("Phase 2 → Phase 3","Phase 3 → Approval"),
+  legend = "top",
+  palette = c("darkorange","darkgreen"),   # <-- keep only this
+  xlab = "Years since milestone",
+  ylab = "% of drugs not yet progressed / approved",
+  risk.table = TRUE, risk.table.height = 0.22,
+  ggtheme = theme_classic(base_size = 20),
+  size = 2.5
+)
+medians <- surv_median(fit_combined)
+
+p_combined$plot <- p_combined$plot +
+  geom_vline(data = subset(medians, strata == "curve=Phase 2 to Phase 3"),
+             aes(xintercept = median), color = "darkorange",
+             linetype = "dashed", linewidth = 1.5) +
+  geom_vline(data = subset(medians, strata == "curve=Phase 3 to Approval"),
+             aes(xintercept = median), color = "darkgreen",
+             linetype = "dashed", linewidth = 1.5)
+
+# --- Save high-resolution figure ---
+ggsave(
+  "KM_combined_P2toP3_and_P3toApproval.png",
+  plot = p_combined$plot,
+  width = 20, height = 12, dpi = 300
+)
+
+print(p_combined)
+ library(broom)
+library(ggplot2)
+library(dplyr)
+library(survival)
+
+# Ensure curve is an ordered factor before fitting
+km_combined$curve <- factor(
+  km_combined$curve,
+  levels = c("Phase 2 to Phase 3","Phase 3 to Approval")
+)
+
+# Fit once for both curves
+fit_combined <- survfit(Surv(time_years, event) ~ curve, data = km_combined)
+
+# Step data with counts on Y
+df_step <- broom::tidy(fit_combined) %>%
+  mutate(
+    curve = sub("^curve=", "", strata),
+    n_count = n.risk
+  )
+
+# Medians per curve
+meds <- surv_median(fit_combined) %>%
+  mutate(curve = sub("^curve=", "", strata))
+
+# Colors
+pal <- c("Phase 2 to Phase 3" = "darkorange",
+         "Phase 3 to Approval" = "darkgreen")
+
+# Plot counts
+p_counts <- ggplot(df_step, aes(x = time, y = n_count, color = curve)) +
+  geom_step(linewidth = 2.8) +
+  # median lines
+  geom_vline(data = meds,
+             aes(xintercept = median, color = curve),
+             linetype = "dashed", linewidth = 1.6, show.legend = FALSE) +
+  scale_color_manual(values = pal, breaks = names(pal), labels = names(pal)) +
+  labs(
+    x = "Years since milestone",
+    y = "Drugs not yet at endpoint",
+    color = NULL
+  ) +
+  theme_classic(base_size = 22) +
+  theme(
+    legend.position = "top",
+    legend.text = element_text(size = 20),
+    axis.title.x = element_text(size = 26),
+    axis.title.y = element_text(size = 26),
+    axis.text = element_text(size = 20)
+  )
+
+# Save high-res
+ggsave(
+  "KM_counts_P2toP3_and_P3toApproval.png",
+  plot = p_counts,
+  width = 20, height = 12, dpi = 300
+)
+
+p_counts
+
+
+library(dplyr)
+library(survminer)
+
+# assumes you already built:
+# km_combined  (cols: curve, time_years, event)
+# fit_combined <- survfit(Surv(time_years, event) ~ curve, data = km_combined)
+
+# 1) Descriptives on observed events only (unbiased for percentiles, not for mean if censoring is heavy)
+events_only <- km_combined %>%
+  group_by(curve) %>%
+  summarise(
+    n_total   = n(),
+    n_events  = sum(event),
+    mean_years_events   = mean(time_years[event == 1], na.rm = TRUE),
+    q1_years_events     = quantile(time_years[event == 1], 0.25, na.rm = TRUE),
+    median_years_events = quantile(time_years[event == 1], 0.50, na.rm = TRUE),
+    q3_years_events     = quantile(time_years[event == 1], 0.75, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 2) KM medians (accounts for censoring)
+km_meds <- surv_median(fit_combined) %>%
+  transmute(
+    curve  = sub("^curve=", "", strata),
+    median_years_KM = median,
+    median_lower    = lower,
+    median_upper    = upper
+  )
+
+# 3) Final table
+summary_table <- events_only %>%
+  left_join(km_meds, by = "curve") %>%
+  mutate(across(where(is.numeric), ~ round(.x, 2))) %>%
+  arrange(curve)
+
+summary_table
+
+```
+
+
+```{r}
+library(dplyr)
+library(tidyr)
+
+# Normalize indication labels
+df_ind <- df_datemodified %>%
+  mutate(
+    Indication_Type = case_when(
+      tolower(Indication_Type) %in% c("lead","primary") ~ "Lead",
+      tolower(Indication_Type) %in% c("alternative","alt") ~ "Alternative",
+      TRUE ~ NA_character_
+    )
+  )
+
+## A) Overall per drug (all phases together)
+drug_mix_overall <- df_ind %>%
+  group_by(drugid) %>%
+  summarise(
+    has_lead = any(Indication_Type == "Lead", na.rm = TRUE),
+    has_alt  = any(Indication_Type == "Alternative", na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(bucket = case_when(
+    has_lead & has_alt ~ "Both",
+    has_lead & !has_alt ~ "Lead only",
+    !has_lead & has_alt ~ "Alternative only",
+    TRUE ~ "Neither"
+  )) %>%
+  count(bucket) %>%
+  arrange(factor(bucket, levels = c("Lead only","Alternative only","Both","Neither")))
+
+drug_mix_overall
+## B) By phase (Phase 1, 2, 3 reported separately)
+drug_mix_by_phase <- df_ind %>%
+  filter(New_Phase %in% c("Phase 1","Phase 2","Phase 3")) %>%
+  group_by(New_Phase, drugid) %>%
+  summarise(
+    has_lead = any(Indication_Type == "Lead", na.rm = TRUE),
+    has_alt  = any(Indication_Type == "Alternative", na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(bucket = case_when(
+    has_lead & has_alt ~ "Both",
+    has_lead & !has_alt ~ "Lead only",
+    !has_lead & has_alt ~ "Alternative only",
+    TRUE ~ "Neither"
+  )) %>%
+  count(New_Phase, bucket) %>%
+  pivot_wider(names_from = bucket, values_from = n, values_fill = 0) %>%
+  arrange(New_Phase)
+
+drug_mix_by_phase
+
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(survival)
+library(survminer)
+
+# Normalize indication labels
+df_norm <- df_datemodified %>%
+  mutate(
+    Indication_Type = case_when(
+      tolower(Indication_Type) %in% c("lead","primary") ~ "Lead",
+      tolower(Indication_Type) %in% c("alternative","alt") ~ "Alternative",
+      TRUE ~ NA_character_
+    )
+  )
+
+# Approval per drug
+approvals <- df_norm %>%
+  group_by(drugid) %>%
+  summarise(approval = min(ApprovalDate, na.rm = TRUE), .groups = "drop")
+
+# Helper: build KM-ready data for a phase, but only for drugs that have BOTH types in that phase
+km_data_both <- function(phase_label) {
+  phase_df <- df_norm %>%
+    filter(New_Phase == phase_label, !is.na(StartDate), !is.na(Indication_Type))
+
+  # keep only drugs with both Lead and Alternative in this phase
+  both_drugs <- phase_df %>%
+    distinct(drugid, Indication_Type) %>%
+    count(drugid) %>%
+    filter(n >= 2) %>%
+    pull(drugid)
+
+  phase_df <- phase_df %>% filter(drugid %in% both_drugs)
+
+  # earliest trial per drug in this phase and its type
+  first_rows <- phase_df %>%
+    arrange(drugid, StartDate) %>%
+    group_by(drugid) %>%
+    slice(1) %>%
+    ungroup() %>%
+    transmute(drugid,
+              Phase = phase_label,
+              Indication = Indication_Type,
+              start_date = StartDate)
+
+  # join approval and compute time
+  first_rows %>%
+    left_join(approvals, by = "drugid") %>%
+    mutate(
+      time_years = as.numeric(difftime(approval, start_date, units = "days")) / 365.25
+    ) %>%
+    filter(!is.na(approval), time_years >= 0)
+}
+
+# Build cohorts
+km_p2 <- km_data_both("Phase 2")
+km_p3 <- km_data_both("Phase 3")
+
+
+print(p2_plot)
+library(survival)
+library(survminer)
+library(broom)
+library(dplyr)
+library(ggplot2)
+
+# Fit
+fit_p2 <- survfit(Surv(time_years, rep(1L, nrow(km_p2))) ~ Indication, data = km_p2)
+
+# Tidy to get step data including counts
+df_step <- broom::tidy(fit_p2) %>%
+  mutate(
+    Indication = sub("^Indication=", "", strata),
+    n_count = n.risk                             # number of drugs not yet approved
+  )
+
+# Medians per group
+med_p2 <- surv_median(fit_p2) %>%
+  mutate(Indication = sub("^Indication=", "", strata))
+
+# Colors
+pal <- c(Lead = "darkorange", Alternative = "steelblue")
+
+# Plot counts on Y
+p_counts_p2 <- ggplot(df_step, aes(x = time, y = n_count, color = Indication)) +
+  geom_step(linewidth = 2.5) +
+  # median lines
+  geom_vline(data = med_p2, aes(xintercept = median, color = Indication),
+             linetype = "dashed", linewidth = 1.5, show.legend = FALSE) +
+  scale_color_manual(values = pal) +
+  labs(
+    x = "Years from earliest Phase 2 to approval",
+    y = "Drugs not yet approved",
+    color = NULL
+  ) +
+  theme_classic(base_size = 22) +
+  theme(
+    legend.position = "top",
+    legend.text = element_text(size = 20),
+    axis.title.x = element_text(size = 26),
+    axis.title.y = element_text(size = 26),
+    axis.text = element_text(size = 20)
+  )
+
+# Save high-resolution
+ggsave("KM_counts_Phase2_Lead_vs_Alternative.png",
+       plot = p_counts_p2, width = 20, height = 12, dpi = 300)
+
+
+# Fit
+fit_p3 <- survfit(Surv(time_years, rep(1L, nrow(km_p3))) ~ Indication, data = km_p3)
+
+# Tidy to get step data including counts
+df_step <- broom::tidy(fit_p3) %>%
+  mutate(
+    Indication = sub("^Indication=", "", strata),
+    n_count = n.risk                             # number of drugs not yet approved
+  )
+
+# Medians per group
+med_p3 <- surv_median(fit_p3) %>%
+  mutate(Indication = sub("^Indication=", "", strata))
+
+# Colors
+pal <- c(Lead = "darkorange", Alternative = "steelblue")
+
+# Plot counts on Y
+p_counts_p3 <- ggplot(df_step, aes(x = time, y = n_count, color = Indication)) +
+  geom_step(linewidth = 2.5) +
+  # median lines
+  geom_vline(data = med_p2, aes(xintercept = median, color = Indication),
+             linetype = "dashed", linewidth = 1.5, show.legend = FALSE) +
+  scale_color_manual(values = pal) +
+  labs(
+    x = "Years from earliest Phase 2 to approval",
+    y = "Drugs not yet approved",
+    color = NULL
+  ) +
+  theme_classic(base_size = 22) +
+  theme(
+    legend.position = "top",
+    legend.text = element_text(size = 20),
+    axis.title.x = element_text(size = 26),
+    axis.title.y = element_text(size = 26),
+    axis.text = element_text(size = 20)
+  )
+
+# Save high-resolution
+ggsave("KM_counts_Phase3_Lead_vs_Alternative.png",
+       plot = p_counts_p3, width = 20, height = 12, dpi = 300)
+# Quick counts and medians for your report
+p2_stats <- km_p2 %>% group_by(Indication) %>%
+  summarise(n = n(),
+            median_yrs = median(time_years),
+            q1 = quantile(time_years, .25),
+            q3 = quantile(time_years, .75),
+            .groups = "drop")
+
+p3_stats <- km_p3 %>% group_by(Indication) %>%
+  summarise(n = n(),
+            median_yrs = median(time_years),
+            q1 = quantile(time_years, .25),
+            q3 = quantile(time_years, .75),
+            .groups = "drop")
+
+p2_stats
+p3_stats
+
+```
+```{r}
+library(dplyr)
+library(lubridate)
+library(survival)
+library(survminer)
+library(broom)
+library(ggplot2)
+
+# 0) Drug cohort from your Phase 2 KM data
+cohort_drugs <- unique(km_p2$drugid)
+
+# 1) Build Phase 3 dataset only for those drugs
+p3_first_row_same <- df_datemodified %>%
+  filter(drugid %in% cohort_drugs, New_Phase == "Phase 3", !is.na(StartDate)) %>%
+  arrange(drugid, StartDate) %>%
+  group_by(drugid) %>%
+  slice(1) %>%
+  ungroup() %>%
+  mutate(
+    Indication = case_when(
+      tolower(Indication_Type) %in% c("lead","primary") ~ "Lead",
+      tolower(Indication_Type) %in% c("alternative","alt") ~ "Alternative",
+      TRUE ~ "Unknown"
+    )
+  ) %>%
+  dplyr::select(drugid, start_date = StartDate, Indication)
+
+approvals <- df_datemodified %>%
+  group_by(drugid) %>%
+  summarise(approval = min(ApprovalDate, na.rm = TRUE), .groups = "drop")
+
+km_p3_same <- p3_first_row_same %>%
+  left_join(approvals, by = "drugid") %>%
+  mutate(time_years = as.numeric(difftime(approval, start_date, units = "days")) / 365.25) %>%
+  filter(!is.na(approval), time_years >= 0)
+
+# Quick diagnostics
+message("Cohort size from Phase 2: ", length(cohort_drugs))
+message("Phase 3 available in cohort: ", n_distinct(km_p3_same$drugid))
+message("Dropped due to missing Phase 3 or dates: ",
+        length(cohort_drugs) - n_distinct(km_p3_same$drugid))
+
+# 2) Fit KM for Phase 3 on same-drug cohort
+fit_p3_same <- survfit(Surv(time_years, rep(1L, nrow(km_p3_same))) ~ Indication, data = km_p3_same)
+
+# 3) Plot COUNTS on y-axis, thick lines, big labels, median lines, save
+df_step_p3 <- broom::tidy(fit_p3_same) %>%
+  mutate(Indication = sub("^Indication=", "", strata),
+         n_count = n.risk)
+
+med_p3 <- surv_median(fit_p3_same) %>%
+  mutate(Indication = sub("^Indication=", "", strata))
+
+pal_p3 <- c(Lead = "darkgreen", Alternative = "steelblue", Unknown = "grey40")
+pal_use <- unname(pal_p3[unique(df_step_p3$Indication)])
+
+p_counts_p3_same <- ggplot(df_step_p3, aes(x = time, y = n_count, color = Indication)) +
+  geom_step(linewidth = 2.5) +
+  geom_vline(data = med_p3, aes(xintercept = median, color = Indication),
+             linetype = "dashed", linewidth = 1.5, show.legend = FALSE) +
+  scale_color_manual(values = pal_p3) +
+  labs(
+    x = "Years from earliest Phase 3 to approval",
+    y = "Drugs not yet approved",
+    color = NULL
+  ) +
+  theme_classic(base_size = 22) +
+  theme(
+    legend.position = "top",
+    legend.text = element_text(size = 20),
+    axis.title.x = element_text(size = 26),
+    axis.title.y = element_text(size = 26),
+    axis.text = element_text(size = 20)
+  )
+
+ggsave("KM_counts_Phase3_sameCohort_Lead_vs_Alternative.png",
+       plot = p_counts_p3_same, width = 20, height = 12, dpi = 300)
+
+p_counts_p3_same
+p3_stats_same <- km_p3_same  %>% group_by(Indication) %>%
+  summarise(n = n(),
+            median_yrs = median(time_years),
+            q1 = quantile(time_years, .25),
+            q3 = quantile(time_years, .75),
+            .groups = "drop")
+p3_stats_same
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(stringr)
+
+# Normalize labels
+df_norm <- df_datemodified %>%
+  mutate(
+    Indication_Type = case_when(
+      str_to_lower(Indication_Type) %in% c("lead","primary") ~ "Lead",
+      str_to_lower(Indication_Type) %in% c("alternative","alt") ~ "Alternative",
+      TRUE ~ NA_character_
+    )
+  )
+
+# Phase 2 flags per drug
+p2_flags <- df_norm %>%
+  filter(New_Phase == "Phase 2", !is.na(Indication_Type)) %>%
+  group_by(drugid) %>%
+  summarise(
+    has_alt_p2  = any(Indication_Type == "Alternative"),
+    has_lead_p2 = any(Indication_Type == "Lead"),
+    .groups = "drop"
+  )
+
+# Cohort: drugs with ONLY Alternative in Phase 2
+p2_alt_only <- p2_flags %>%
+  filter(has_alt_p2 & !has_lead_p2) %>%
+  dplyr::select(drugid)
+
+# Phase 3 flags for that cohort
+p3_flags <- df_norm %>%
+  filter(New_Phase == "Phase 3", drugid %in% p2_alt_only$drugid) %>%
+  group_by(drugid) %>%
+  summarise(
+    has_any_p3   = n() > 0,
+    has_lead_p3  = any(Indication_Type == "Lead", na.rm = TRUE),
+    has_alt_p3   = any(Indication_Type == "Alternative", na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Join and classify outcomes
+cohort <- p2_alt_only %>%
+  left_join(p3_flags, by = "drugid") %>%
+  mutate(
+    has_any_p3 = replace_na(has_any_p3, FALSE),
+    has_lead_p3 = replace_na(has_lead_p3, FALSE),
+    has_alt_p3 = replace_na(has_alt_p3, FALSE),
+    bucket = case_when(
+      !has_any_p3                     ~ "No Phase 3 trials",
+      has_lead_p3 & has_alt_p3       ~ "Phase 3: Lead and Alternative",
+      has_lead_p3 & !has_alt_p3      ~ "Phase 3: Lead only",
+      !has_lead_p3 & has_alt_p3      ~ "Phase 3: Alternative only",
+      TRUE                           ~ "Phase 3: Unknown"
+    )
+  )
+
+# Summary counts and shares
+summary_tbl <- cohort %>%
+  count(bucket, name = "n") %>%
+  mutate(total = sum(n), share = round(100 * n / total, 1)) %>%
+  arrange(desc(n))
+
+summary_tbl
+
+```
+```{r}
+library(dplyr)
+library(stringr)
+library(tidyr)
+
+# 0) Normalize labels
+df_norm <- df_datemodified %>%
+  mutate(
+    Indication_Type = case_when(
+      str_to_lower(Indication_Type) %in% c("lead","primary") ~ "Lead",
+      str_to_lower(Indication_Type) %in% c("alternative","alt") ~ "Alternative",
+      TRUE ~ NA_character_
+    ),
+    WHOIndication = na_if(str_trim(WHOIndication), "")
+  )
+
+# 1) Cohort: drugs with ONLY Alternative in Phase 2
+p2_flags <- df_norm %>%
+  filter(New_Phase == "Phase 2", !is.na(Indication_Type)) %>%
+  group_by(drugid) %>%
+  summarise(
+    has_alt_p2  = any(Indication_Type == "Alternative"),
+    has_lead_p2 = any(Indication_Type == "Lead"),
+    .groups = "drop"
+  )
+
+p2_alt_only <- p2_flags %>%
+  filter(has_alt_p2 & !has_lead_p2) %>%
+  dplyr::select(drugid)
+
+# 2) WHOIndication for Phase 2 trials in this cohort
+p2_who <- df_norm %>%
+  filter(New_Phase == "Phase 2",
+         Indication_Type == "Alternative",
+         drugid %in% p2_alt_only$drugid) %>%
+  distinct(drugid, WHOIndication)
+
+# Counts for P2 WHOIndication
+p2_who_counts <- p2_who %>%
+  mutate(WHOIndication = coalesce(WHOIndication, "Unknown")) %>%
+  count(WHOIndication, sort = TRUE)
+
+# 3) WHOIndication for corresponding Phase 3 trials in this cohort
+#    A) All Phase 3 trials
+p3_who_all <- df_norm %>%
+  filter(New_Phase == "Phase 3",
+         drugid %in% p2_alt_only$drugid) %>%
+  distinct(drugid, Indication_Type, WHOIndication)
+
+p3_who_all_counts <- p3_who_all %>%
+  mutate(
+    Indication_Type = coalesce(Indication_Type, "Unknown"),
+    WHOIndication   = coalesce(WHOIndication, "Unknown")
+  ) %>%
+  count(Indication_Type, WHOIndication, sort = TRUE)
+
+#    B) Earliest Phase 3 per drug only
+p3_first <- df_norm %>%
+  filter(New_Phase == "Phase 3",
+         drugid %in% p2_alt_only$drugid,
+         !is.na(StartDate)) %>%
+  arrange(drugid, StartDate) %>%
+  group_by(drugid) %>%
+  slice(1) %>%
+  ungroup() %>%
+  transmute(
+    drugid,
+    Indication_Type = coalesce(Indication_Type, "Unknown"),
+    WHOIndication   = coalesce(WHOIndication, "Unknown")
+  )
+
+p3_first_counts <- p3_first %>%
+  count(Indication_Type, WHOIndication, sort = TRUE)
+
+# 4) Optional. One tidy table per drug showing P2 and P3 WHOIndication
+who_map_per_drug <- p2_who %>%
+  rename(P2_WHO = WHOIndication) %>%
+  left_join(
+    p3_who_all %>%
+      group_by(drugid) %>%
+      summarise(P3_WHO_set = paste(sort(unique(coalesce(WHOIndication, "Unknown"))), collapse = " | "),
+                P3_types   = paste(sort(unique(coalesce(Indication_Type, "Unknown"))), collapse = " | "),
+                .groups = "drop"),
+    by = "drugid"
+  )
+
+# View results
+p2_who_counts
+p3_who_all_counts
+p3_first_counts
+who_map_per_drug
+
+```
+```{r}
+# Compare unique triplets
+setdiff(
+  unique(df_final %>% filter(New_Phase %in% c("Phase 2","Phase 3")) %>%
+           transmute(drugid, New_Phase, Indication_Type)),
+  unique(df_datemodified %>% filter(New_Phase %in% c("Phase 2","Phase 3")) %>%
+           transmute(drugid, New_Phase, Indication_Type))
+)
+df_base_firstPhase %>% 
+  filter(New_Phase %in% c("Phase 2","Phase 3")) %>%
+  summarise(mean_months = mean(months_before),
+            median_months = median(months_before),
+            n = n())
+
+df_base_firstPhaseexclude %>% 
+  filter(New_Phase %in% c("Phase 2","Phase 3")) %>%
+  summarise(mean_months = mean(months_before),
+            median_months = median(months_before),
+            n = n())
+
+```
+
+
+
+
