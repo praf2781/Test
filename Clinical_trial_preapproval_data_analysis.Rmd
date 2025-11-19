@@ -1,0 +1,2525 @@
+---
+title: "clinical_trial_dataset_preApproval"
+output: html_document
+date: "2024-01-09"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+```{r}
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(tidytext)
+library(tidyr)
+library(lubridate)
+library(forcats)
+```
+
+```{r}
+# set the working directory
+path = "C:\\Users\\parya\\ScienceandIndustry Dropbox\\Payal Arya\\RESEARCH DOTD Clinical Trials\\Working\\Payal Arya\\clinical_trial_preapproval\\03252024\\preprocessing"
+setwd(path)
+```
+
+```{r merge clintrial with master druglist}
+#load csv file
+clinical_trial = read.csv("ClinicalTrials_387_PHASE_1_3_PreApp.csv")
+Master_drug_list = read.csv("Master_Druglist_December2023.csv",header = TRUE)
+
+
+
+glimpse(Master_drug_list)
+glimpse(clinical_trial)
+#Merge the two daatsets using DrugID
+merged = merge(clinical_trial, Master_drug_list, by.x = "drugid", by.y = "Drug_ID")
+glimpse(merged)
+#select some columsn in clinical trial
+selected_clin_trial <- merged %>%
+  select(NCTId,drugid,LeadSponsorName,StartDate,ApprovalDate,CompletionDate,OverallStatus,Phase,ApprovalYear,WHOIndication,TrialDuration,CDER1_CBER0,NCE_1_Biologic_0,First_In_Class,ExpeditedDesignations,Orphan.x,Orphan.y,Priority.x,Priority.y,Accelerated.x,Accelerated.y,Breakthrough.x,Breakthrough.y,FastTrack.x,FastTrack.y,First_approved_indication_FDA,First_Approval_Date,CollaboratorName,BrandName,Target_PharmaProjects)
+
+
+#find duplicates and create a new dataframe for only the duplicates
+
+duplicate <- selected_clin_trial %>%
+  group_by(drugid,NCTId) %>%
+  mutate(dupe= n()>1)%>%
+  filter(dupe== TRUE)
+         
+# count duplicated ids
+ count = sum(duplicate$dupe,na.rm =TRUE)
+ print(count)
+ 
+##Remove duplicates NCTids identified above
+selected_distinct <- selected_clin_trial %>%
+  distinct( drugid,NCTId,.keep_all = TRUE)
+  
+write.csv(selected_distinct, "Clin_trials_preapp_unique_03252024.csv")
+
+clintrial_unique <- read.csv("C:\\Users\\parya\\ScienceandIndustry Dropbox\\Payal Arya\\RESEARCH DOTD Clinical Trials\\Working\\Payal Arya\\clinical_trial_preapproval\\Clin_trials_preapp_unique_03252024.csv")
+
+
+```
+
+
+
+
+```{r find duplicate NCTId}
+duplicate <- clintrial_unique %>%
+  group_by(drugid,NCTId) %>%
+  mutate(dupe= n()>1)
+        
+# count duplicated ids
+ count = sum(duplicate$dupe,na.rm =TRUE)
+ print(count)
+ 
+ 
+```
+
+```{r mutate Phase, Date columns}
+# create a new column"New_Phase where the entries Phase1;Phase2 is rounded up to Phase2 and Phase2;Phase3 is rounded up to Phase3
+
+# The first mutate extracts the desired part from 'Phase'.
+# The second mutate replaces "Phase1;Phase2" with "Phase2" and "Phase2;Phase3" with "Phase3".
+clintrial_unique <- clintrial_unique %>%
+  mutate(New_Phase = gsub(".*;\\s*([^;]+)$", "\\1", Phase)) %>%
+  mutate(New_Phase = gsub("Phase(\\d+);Phase(\\d+)", "Phase\\2", New_Phase))
+
+clintrial_unique <- clintrial_unique %>%
+  mutate(CompletionDate = replace(CompletionDate, CompletionDate == 0, NA),
+         StartDate = replace(StartDate, StartDate == 0, NA))
+
+null_values_CompletionDate <- sum(is.na(clintrial_unique$CompletionDate))
+print(null_values_CompletionDate) #577
+
+null_values_StartDate <- sum(is.na(clintrial_unique$StartDate))
+print(null_values_StartDate)#69
+
+null_values_ApprovalDate <- sum(is.na(clintrial_unique$ApprovalDate))
+print(null_values_ApprovalDate)#0
+
+
+# create one column for each expedited pathway
+
+
+clintrial_unique <- clintrial_unique %>%
+  mutate(Orphan_0_1 = coalesce(Orphan.x,Orphan.y),
+         Accelerated_0_1= coalesce(Accelerated.x,Accelerated.y),
+         Priority_0_1 = coalesce(Priority.x,Priority.y),
+         FastTrack_0_1 = coalesce(FastTrack.x,FastTrack.y)) %>%
+         select(-Orphan.x, -Orphan.y, -Accelerated.x,-Accelerated.y,-Priority.x,-Priority.y
+                ,-FastTrack.x,-FastTrack.y)
+
+#create a dataframe for trials for coagulation factors
+
+filtered_trials <- clintrial_unique %>%
+  filter(str_detect(Target_PharmaProjects, "coagulation")) #filtering trials for coagulation factors
+
+write.csv(filtered_trials, "filtered_trials_05202024.csv")
+
+
+#create a dataframe for trials without trials for coagulation factors
+
+
+Uniquetrials <- clintrial_unique %>%
+  filter(!str_detect(Target_PharmaProjects, "coagulation")) #filtering trials for coagulation factors
+```
+
+
+
+
+```{r}
+
+```
+
+```{r}
+accelerated_trials <- Uniquetrials %>%
+  filter(!New_Phase == "Early Phase 1", Accelerated_0_1=="1")%>%
+  group_by(WHOIndication,New_Phase, drugid)%>%
+  summarise(
+            Total_NCTID = n(), .groups= 'drop')
+
+p<- ggplot(accelerated_trials, aes(x = WHOIndication, y = Total_NCTID, fill = New_Phase)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA)+theme(
+    axis.text.x = element_text(angle = 45, hjust = 1))  # Adjust text angle for better readability
+
+print(p)
+
+non_accelerated_trials <- Uniquetrials %>%
+  filter(!New_Phase == "Early Phase 1", Accelerated_0_1=="0")%>%
+  group_by(WHOIndication,Phase, drugid)%>%
+  summarise(
+            Total_NCTID = n(), .groups= 'drop')
+
+p1<- ggplot(non_accelerated_trials, aes(x = WHOIndication, y = Total_NCTID, fill = Phase)) +
+  geom_boxplot(alpha = 0.7)+theme(
+    axis.text.x = element_text(angle = 45, hjust = 1))  # Adjust text angle for better readability
+
+print(p1)
+
+lm(Total_NCTID~ Accelerated_1_0 + WHOIndication+Phase)
+```
+
+
+
+
+```{r Histogram trials per drug id}
+
+
+# Calculate the count of NCTIds for each drug
+trial_counts <- Uniquetrials %>%
+  group_by(drugid,BrandName) %>%
+  summarise(Count = n(), .groups = 'drop')
+
+summary_stats <- trial_counts %>%
+  summarise(
+    Mean_Trials = mean(Count),   # Mean of counts
+    Median_Trials = median(Count), # Median of counts
+  IQR_trials = IQR(Count))
+
+
+# Plotting
+p <- ggplot(trial_counts, aes(x = Count)) +
+  geom_histogram(binwidth = 1, fill = "skyblue", color = "black") +
+  labs(title = "Distribution of NCTIds per Drug", x = "Number of NCTIds", y = "Frequency of Drugs") +
+ theme_minimal() +
+  theme(axis.text.x = element_text(size =16),
+        axis.text.y = element_text(size =16),
+    axis.title.x = element_text(size = 20, face = "bold"),  # Customizing x-axis label font size and style
+    axis.title.y = element_text(size = 20, face = "bold"),  # Customizing y-axis label font size and style
+    strip.text = element_text(size=14),
+    plot.title = element_text(size = 22, face = "bold", hjust = 0.5),
+    panel.background = element_blank()# Customizing title font size, style, and horizontal alignment
+  )
+
+# Print the plot
+print(p)
+
+ggsave("trial_counts_perdrugid.jpg", p, width =24,height =12,dpi =300)
+
+
+
+# Calculate the count of NCTIds for each combination of New_Phase and drugid
+trial_counts_by_phase <- Uniquetrials %>%
+  filter(!New_Phase == "Early Phase 1") %>%
+  group_by(New_Phase,drugid,BrandName) %>%
+  summarise(count = n(), .groups = 'drop') 
+
+# Determine the drug with the highest number of trials for each phase
+top_drugs_by_phase <- trial_counts_by_phase %>%
+  group_by(New_Phase) %>%
+  summarise(max_count = max(count)) %>%
+  left_join(trial_counts_by_phase, by = c("New_Phase", "max_count" = "count")) %>%
+  group_by(New_Phase) %>%
+  slice(1)  # Ensures no duplicates if multiple drugs have the same count
+
+
+
+# Adjust plot to display the sum of counts on the y-axis
+p <- ggplot(trial_counts_by_phase, aes(x = count)) +
+  geom_histogram(binwidth = 1, fill = "skyblue", color = "black", stat = "bin") +
+  geom_text(data = top_drugs_by_phase, aes(x = max_count, y = 0, label = drugid), vjust = -1.5, color = "red", check_overlap = TRUE) +
+  facet_wrap(~ New_Phase) +
+  labs(title = "Distribution of NCTIds per Drug by Phase", x = "Number of NCTIds", y = "Frequency of Drugids") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(size =12),
+        axis.text.y = element_text(size =12),
+    axis.title.x = element_text(size = 14, face = "bold"),  # Customizing x-axis label font size and style
+    axis.title.y = element_text(size = 14, face = "bold"),  # Customizing y-axis label font size and style
+    strip.text = element_text(size=14),
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    panel.background = element_blank()# Customizing title font size, style, and horizontal alignment
+  )
+
+# Print the plot
+print(p)
+
+ggsave("Distribution of NCTIds per Drug by Phase.jpg", p, width =16,height = 8,dpi =300)
+
+
+# Calculate the count of NCTIDs for each combination of New_Phase and drugid
+trial_counts_by_phase <- Uniquetrials %>%
+  filter(!New_Phase=="Early Phase 1") %>%
+  group_by(New_Phase, drugid) %>%
+  summarise(NCTID_count = n(), .groups = 'drop')  # n() counts the number of NCTIDs per group
+
+# Plot the boxplot of NCTID counts per phase
+p <- ggplot(trial_counts_by_phase, aes(x = New_Phase, y = NCTID_count)) +
+  geom_boxplot(notch =TRUE) +
+  labs(title = "Distribution of NCTIDs per Drug by Phase",
+       x = "Phase",
+       y = "Number of NCTIDs") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Adjust text angle for better readability
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.title.x = element_text(size = 14, face = "bold"),
+    axis.title.y = element_text(size = 14, face = "bold")
+  )
+
+print(p)
+
+#Plot boxplot of number of trials per drug id in each indication
+#count NCTIds by drug in each phase and indication
+Trials_count <- Uniquetrials %>%
+  filter(!New_Phase == "Early Phase 1")%>%
+  group_by(WHOIndication,New_Phase,drugid,BrandName)%>%
+  summarise(
+            Total_NCTID = n())
+
+summary <- Uniquetrials %>%
+  group_by(drugid,WHOIndication) %>%
+  summarise(Trials_perdrug = n_distinct(NCTId), .groups = "drop")%>%
+  group_by(WHOIndication)%>%
+  summarise(Mean_trials = mean(Trials_perdrug),
+            median_trials = median(Trials_perdrug), .groups = "drop")
+
+phase_colors <- c("#377EB8", "#4DAF4A", "#FF7F00")
+
+Distribution_NCTIDs_perdrug <- ggplot(Trials_count, aes(x = WHOIndication, y = Total_NCTID)) +
+  geom_boxplot(alpha = 0.7) +
+  #facet_wrap(~ WHOIndication, scales = "free") +  # Facet by WHOIndication
+  labs(x = " ", y = "NCTIDs per Drug IDs", title = "Distribution of NCTIDs per Drug IDs by Phase and WHOIndication") +
+# scale_y_continuous(breaks = breaks_value, limits = c(0, max_value * 1.1)) + 
+  scale_fill_manual(values = setNames(phase_colors, unique(Trials_count$New_Phase)), name = "Phase")+
+  theme_minimal() +
+  theme(
+    strip.text.x = element_text(size=14),
+    strip.background = element_blank(),
+    axis.text.y = element_text(size=14),
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),  # Hide x-axis title
+    legend.text = element_text(size=12),
+    legend.position = "right"
+  )
+
+phase_colors <- c("#377EB8", "#4DAF4A", "#FF7F00")
+
+p <- ggplot(Trials_count, aes(x = WHOIndication, y = Total_NCTID, fill = New_Phase)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA) +  # Remove outliers for cleaner visualization
+  #scale_y_continuous(breaks = seq(0, 50, 10)) +  # Set y-axis breaks
+  coord_cartesian(ylim=c(0,60))+
+  scale_fill_manual(values = setNames(phase_colors, unique(Trials_count$New_Phase)), name = "Phase")
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Adjust x-axis text angle
+    axis.title.x = element_text(size = 12),  # Optional: Adjust x-axis title size
+    axis.title.y = element_text(size = 12),  # Optional: Adjust y-axis title size
+    legend.title = element_text(size = 12)   # Optional: Adjust legend title size
+  ) +
+  labs(
+    title = "Distribution of Total NCTID by WHO Indication and Phase",  # Add a plot title
+    x = "WHO Indication",  # Label for x-axis
+    y = "Total NCTID",  # Label for y-axis
+    fill = "Phase"  # Legend title
+  )
+
+# Print the plot
+print(p)
+
+summary(fit<-aov(Total_NCTID~ WHOIndication*New_Phase, Trials_count ))
+kruskal.test(Total_NCTID~ WHOIndication, Trials_count)
+print(Distribution_NCTIDs_perdrug)
+
+Trialcount <- Uniquetrials %>%
+  filter(!New_Phase == "Early Phase 1")%>%
+  group_by(WHOIndication,Phase,drugid,BrandName)%>%
+  summarise(
+            Total_NCTID = n())
+
+kruskal.test(Total_NCTID~ Phase, Trialcount)
+ggsave("Distribution_NCTIDs_perdrug.jpg",Distribution_NCTIDs_perdrug, width =16, height = 10, dpi =300)
+
+# Calculating summary statistics for each combination of New_Phase and WHOIndication
+summary_statsDistribution_NCTIDs_perdrug <- Trials_count %>%
+  group_by(New_Phase, WHOIndication) %>%
+  summarise(
+    N = n(),
+    Unique_Drugs = n_distinct(drugid),  # Count of unique drug IDs
+    Mean = mean(Total_NCTID, na.rm = TRUE),
+    Median = median(Total_NCTID, na.rm = TRUE),
+    IQR = IQR(Total_NCTID, na.rm = TRUE),
+    Min = min(Total_NCTID, na.rm = TRUE),
+    Max = max(Total_NCTID, na.rm = TRUE)
+  )
+
+# Printing the summary statistics
+print(summary_stats)
+
+
+#check the number of trials for drugs that have accelerated approvals
+
+Trials_count <- Uniquetrials %>%
+  filter(!New_Phase == "Early Phase 1")%>%
+  group_by(WHOIndication,New_Phase,drugid,BrandName)%>%
+  summarise(
+            Total_NCTID = n())
+
+
+Uniquetrials_accelerated <- Trials_count %>%
+  group_by(New_Phase, WHOIndication)%>%
+  summarise(Accelerated_1 = sum(Accelerated_0_1 == 1, na.rm = TRUE),
+    Accelerated_0 = sum(Accelerated_0_1 == 0, na.rm = TRUE))
+
+```
+
+
+
+```{r regression analysis for trial number with indications}
+
+
+
+Trials_count <- Uniquetrials %>%
+  filter(!New_Phase == "Early Phase 1")%>%
+  group_by(WHOIndication,New_Phase,drugid,BrandName)%>%
+  summarise(
+            Total_NCTID = n())
+
+# Adjust factor levels to set baselines
+Trials_count$WHOIndication <- factor(Trials_count$WHOIndication, levels = c("Other", setdiff(unique(Trials_count$WHOIndication), "Other")))
+Trials_count$New_Phase <- factor(Trials_count$New_Phase, levels = c("Phase 1", setdiff(unique(Trials_count$New_Phase), "Phase 1")))
+model = lm(Total_NCTID~ WHOIndication*New_Phase,data = Trials_count)
+summary(model)
+
+# Residuals vs. Fitted
+plot(model$fitted.values, model$residuals,
+     main = "Residuals vs. Fitted", pch = 20, col = "blue")
+abline(h = 0, lwd = 2, col = "red")
+
+# Normality Check
+qqnorm(model$residuals)
+qqline(model$residuals, col = "red")
+
+# Homoscedasticity Check
+plot(model$fitted.values, model$residuals, 
+     main = "Homoscedasticity Check", xlab = "Fitted values", ylab = "Residuals", pch = 20)
+abline(h = 0, col = "red")
+
+# Independence of Residuals
+durbinWatsonTest(model)
+
+# Multicollinearity Check
+print(vif(model))
+
+# Influential Points
+influencePlot(model)
+
+model_glm <- glm(Total_NCTID ~ WHOIndication + New_Phase + WHOIndication * New_Phase, family = poisson(), data = Trials_count)
+
+summary(model_glm)
+
+plot(model_glm$fitted.values, resid(model_glm, type = "deviance"),
+     xlab = "Fitted Values", ylab = "Deviance Residuals",
+     main = "Deviance Residuals vs. Fitted Values")
+abline(h = 0, col = "red")
+
+
+
+qqnorm(resid(model_glm, type = "pearson"))
+qqline(resid(model_glm, type = "pearson"), col = "red")
+pearson_res <- resid(model_glm, type = "pearson")
+dispersion_statistic <- sum(pearson_res^2) / model_glm$df.residual
+print(dispersion_statistic)
+
+
+library(broom)
+influence <- augment(model_glm)
+plot(influence$.hat, influence$.cooksd,
+     xlab = "Leverage", ylab = "Cooks Distance",
+     main = "Leverage vs. Cook's Distance")
+abline(h = 4/(nrow(Trials_count) - length(model_glm$coefficients)), col = "red")
+
+cat("Deviance: ", deviance(model_glm), "\n")
+cat("AIC: ", AIC(model_glm), "\n")
+```
+
+
+```{r Regression}
+# Determine the top 5 WHOIndication categories
+top_categories <- Uniquetrials %>%
+  group_by(WHOIndication) %>%
+  summarise(TrialCount = n(), .groups = 'drop') %>%
+  arrange(desc(TrialCount)) %>%
+  slice_head(n = 5) %>%
+  pull(WHOIndication)  # Get only the names of the top 5 categories
+
+print(top_categories)
+
+# Recode WHOIndication to consolidate non-top categories into 'Other'
+Uniquetrials$WHOIndication_Revised <- ifelse(Uniquetrials$WHOIndication %in% top_categories, 
+                                             Uniquetrials$WHOIndication, 
+                                             'Other')
+
+Uniquetrials$WHOIndication_Revised <- factor(Uniquetrials$WHOIndication_Revised,
+                                             levels = c("Other", setdiff(levels(Uniquetrials$WHOIndication_Revised), "Other")))
+
+Uniquetrials$New_Phase <- factor(Uniquetrials$New_Phase,
+                                 levels = c("Phase 1", "Phase 2", "Phase 3"))
+Trials_count <- Uniquetrials %>%
+  filter(!New_Phase == "Early Phase 1")%>%
+  group_by(WHOIndication_Revised,New_Phase)%>%
+  summarise(
+            Total_NCTID = n(), .groups = 'drop')
+# Assuming NumberOfTrials is your response variable
+model <- glm(Total_NCTID ~ WHOIndication_Revised + New_Phase, 
+             family = quasipoisson(), 
+             data = Trials_count)
+# View the summary of the model
+summary(model)
+
+
+qqnorm(resid(model, type = "pearson"))
+qqline(resid(model, type = "pearson"), col = "red")
+pearson_res <- resid(model, type = "pearson")
+pearson_res <- resid(model, type = "pearson")
+dispersion_statistic <- sum(pearson_res^2) / model$df.residual
+print(dispersion_statistic)
+# Fit a Negative Binomial model
+model_nb <- glm.nb(Total_NCTID ~ WHOIndication_Revised + New_Phase, data = Trials_count)
+
+# View the summary of the model
+summary(model_nb)
+
+
+# Assuming NumberOfTrials is your response variable
+model_interaction <- glm(Total_NCTID ~ WHOIndication_Revised*New_Phase, 
+             family = poisson(), 
+             data = Trials_count)
+
+# View the summary of the model
+summary(model_interaction)
+anova(model_interaction)
+library(car)
+# Perform Type III SS analysis
+anova_results <- Anova(model_interaction, type = "III")
+print(anova_results)
+# Performing an ANOVA on the model
+anova_model <- anova(model, test = "Chisq")  # Using Chi-squared tests for GLM
+print(anova_model)
+
+
+# Load the emmeans package
+library(emmeans)
+# Calculating the estimated marginal means for WHOIndication_Revised and New_Phase
+emm_results <- emmeans(model_interaction, ~ WHOIndication_Revised + New_Phase)
+contrast(emm_results, method = "pairwise", by = "New_Phase")
+
+contrast(emm_results, method = "pairwise", by = "New_Phase")
+# Conduct pairwise comparisons
+pairwise_results <- pairs(emm_results, adjust = "tukey")  # Adjusting for multiple comparisons using Tukey's method
+print(pairwise_results)
+
+
+
+# GLM for number of trials associated with expedited designations
+Trials_count_expedited <- Uniquetrials %>%
+  filter(!New_Phase == "Early Phase 1")%>%
+  group_by(New_Phase,Breakthrough.y,FastTrack_0_1,Priority_0_1,Accelerated_0_1)%>%
+  summarise(
+            Total_NCTID = n())
+# Fit a GLM with Poisson family
+glm_trials <- glm(Total_NCTID ~ Breakthrough.y + FastTrack_0_1 + Priority_0_1 + Accelerated_0_1 +New_Phase, 
+                  family = poisson(), data = Trials_count_expedited)
+
+# View the summary of the model
+summary(glm_trials)
+
+```
+
+
+
+```{r HIstogram of trials by expedited designations}
+
+
+# Summarize the number of trials and count unique DrugIDs for each expedited category
+Trials_count_expedited <- Uniquetrials %>%
+  filter(New_Phase != "Early Phase 1") %>%
+  group_by(New_Phase, FastTrack_0_1, Priority_0_1, Accelerated_0_1) %>%
+  summarise(
+    Total_NCTID = n(),
+    Unique_DrugIDs = n_distinct(drugid),
+    .groups = 'drop'
+  ) %>%
+  # Melt the data for plotting while keeping the New_Phase information
+  pivot_longer(cols = c(FastTrack_0_1, Priority_0_1, Accelerated_0_1), 
+               names_to = "Category", values_to = "Value") %>%
+  filter(Value == 1) %>%
+  group_by(New_Phase, Category) %>%
+  summarise(
+    Trials = sum(Total_NCTID),
+    Unique_Drugs = sum(Unique_DrugIDs),  
+    .groups = 'drop'
+  )
+
+# Plotting the number of trials and unique DrugIDs per expedited category for each phase
+p <- ggplot(Trials_count_expedited, aes(x = New_Phase, y = Trials, fill = Category)) +
+  geom_bar(stat = "identity", position = "stack") +
+  geom_text(aes(label = Unique_Drugs), position = position_stack(vjust = 0.5), color = "white") +
+  labs(title = "Number of Clinical Trials and Unique Drug IDs by Expedited Category and Phase",
+       x = "Phase",
+       y = "Number of Trials") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        axis.ticks.x = element_blank(),
+        legend.title = element_blank(),
+        legend.position = "bottom")
+
+print(p)
+
+```
+
+
+
+
+```{r distribution of trials for different diesginations}
+
+# Assuming you have columns for drug designations in Uniquetrials
+Trials_count <- Uniquetrials %>%
+  filter(!New_Phase == "Early Phase 1") %>%
+  group_by(WHOIndication, New_Phase, drugid, BrandName, Accelerated_0_1, Orphan_0_1, Priority_0_1, FastTrack_0_1) %>%
+  summarise(
+    Total_NCTID = n(),  # Count of NCT IDs per drug and phase
+    .groups = 'drop'  # Drop the grouping for further operations
+  )
+
+# Assuming Trials_count has already been filtered and grouped appropriately
+Trials_count <- Trials_count %>%
+  mutate(
+    Designation = case_when(
+      Accelerated_0_1 == 1 & Orphan_0_1 == 0 & Priority_0_1 == 0 & FastTrack_0_1 == 0 ~ "Only Accelerated",
+      Accelerated_0_1 == 0 & Orphan_0_1 == 1 & Priority_0_1 == 0 & FastTrack_0_1 == 0 ~ "Only Orphan",
+      Accelerated_0_1 == 0 & Orphan_0_1 == 0 & Priority_0_1 == 1 & FastTrack_0_1 == 0 ~ "Only Priority",
+      Accelerated_0_1 == 0 & Orphan_0_1 == 0 & Priority_0_1 == 0 & FastTrack_0_1 == 1 ~ "Only FastTrack",
+      Accelerated_0_1 == 1 & Orphan_0_1 == 1 & Priority_0_1 == 1 & FastTrack_0_1 == 1 ~ "Accelerated, Orphan, Priority, FastTrack",
+      Accelerated_0_1 == 1 & Orphan_0_1 == 1 & Priority_0_1 == 1 ~ "Accelerated, Orphan, Priority",
+      Accelerated_0_1 == 1 & Orphan_0_1 == 1 & FastTrack_0_1 == 1 ~ "Accelerated, Orphan, FastTrack",
+      Accelerated_0_1 == 1 & Priority_0_1 == 1 & FastTrack_0_1 == 1 ~ "Accelerated, Priority, FastTrack",
+      Orphan_0_1 == 1 & Priority_0_1 == 1 & FastTrack_0_1 == 1 ~ "Orphan, Priority, FastTrack",
+      Accelerated_0_1 == 1 & Orphan_0_1 == 1 ~ "Accelerated and Orphan",
+      Accelerated_0_1 == 1 & Priority_0_1 == 1 ~ "Accelerated and Priority",
+      Accelerated_0_1 == 1 & FastTrack_0_1 == 1 ~ "Accelerated and FastTrack",
+      Orphan_0_1 == 1 & Priority_0_1 == 1 ~ "Orphan and Priority",
+      Orphan_0_1 == 1 & FastTrack_0_1 == 1 ~ "Orphan and FastTrack",
+      Priority_0_1 == 1 & FastTrack_0_1 == 1 ~ "Priority and FastTrack",
+      TRUE ~ "No Special Designation"
+    )
+  )
+
+
+# Calculate summary statistics by New_Phase, WHOIndication, and Designation
+summary_statsDistribution_NCTIDs_perdrug <- Trials_count %>%
+  group_by(New_Phase, WHOIndication, Designation) %>%
+  summarise(
+    N = n(),
+    Unique_Drugs = n_distinct(drugid),  # Count of unique drug IDs
+    Mean = mean(Total_NCTID, na.rm = TRUE),
+    Median = median(Total_NCTID, na.rm = TRUE),
+    IQR = IQR(Total_NCTID, na.rm = TRUE),
+    Min = min(Total_NCTID, na.rm = TRUE),
+    Max = max(Total_NCTID, na.rm = TRUE),
+    .groups = 'drop'  # Drop the grouping after summarisation
+  )
+
+# Display the summary statistics
+print(summary_statsDistribution_NCTIDs_perdrug)
+
+
+ phase_colors <- c("#377EB8", "#4DAF4A", "#FF7F00")
+
+Distribution_NCTIDs_perdrug <- ggplot(Trials_count, aes(x = New_Phase, y = Total_NCTID, fill = New_Phase)) +
+  geom_boxplot(alpha = 0.7) +
+  facet_wrap(~ Designation, scales = "free") +  # Facet by WHOIndication
+  labs(x = " ", y = "NCTIDs per Drug IDs", title = "Distribution of NCTIDs per Drug IDs by Phase and WHOIndication") +
+# scale_y_continuous(breaks = breaks_value, limits = c(0, max_value * 1.1)) + 
+  scale_fill_manual(values = setNames(phase_colors, unique(Trials_count$New_Phase)), name = "Phase")+
+  theme_minimal() +
+  theme(
+    strip.text.x = element_text(size=14),
+    strip.background = element_blank(),
+    axis.text.y = element_text(size=14),
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),  # Hide x-axis title
+    legend.text = element_text(size=12),
+    legend.position = "right"  # Ensure no legend is displayed
+  )
+print(Distribution_NCTIDs_perdrug)
+
+
+#Lets only plot all combinations of accelerated 
+
+Accelerated_Trials_count <- Trials_count %>%
+  filter(Designation == "Only Accelerated")
+
+Accelerated_Trials_count <- Trials_count %>%
+  filter(grepl("Accelerated", Designation))
+# Define colors for the phases
+phase_colors <- c("#377EB8", "#4DAF4A", "#FF7F00")
+
+# Generate the boxplot
+Distribution_NCTIDs_perdrug <- ggplot(Accelerated_Trials_count, aes(x = New_Phase, y = Total_NCTID, fill = New_Phase)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA) +  # Exclude outliers for clearer boxplot
+  facet_wrap(~ Designation, scales = "free_x") +  # Facet by Designation
+  labs(x = " ", y = "NCTIDs per Drug IDs", title = "Distribution of NCTIDs per Drug IDs by Phase and Designation") +
+  scale_y_continuous(breaks = seq(0, 50, 10)) +  # Set y-axis breaks
+  scale_fill_manual(values = setNames(phase_colors, unique(Accelerated_Trials_count$New_Phase)), name = "Phase") +
+  theme_minimal() +
+  theme(
+    strip.text.x = element_text(size = 14),
+    strip.background = element_blank(),
+    axis.text.y = element_text(size = 14),
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),  # Hide x-axis title
+    legend.text = element_text(size = 12),
+    legend.position = "none"  # Hide the legend
+  )
+
+# Print the plot
+print(Distribution_NCTIDs_perdrug)
+```
+
+
+
+
+```{r %age of drugs approved by  indication}
+Indications_count <- Uniquetrials %>%
+  group_by(WHOIndication) %>%
+  summarise(Uniqu_drugid = n_distinct(drugid), .groups = 'drop')
+#calculate total number of drugid
+
+total_drugs <- sum(Indications_count$Uniqu_drugid)
+print(total_drugs)
+#calculate %age of drugs for each indication
+
+Indications_count <- Indications_count %>%
+  mutate(Percentage = round((Uniqu_drugid/total_drugs) *100,digits =2))
+
+Indications_count <- Indications_count %>%
+  arrange(desc(Percentage)) %>%
+  mutate(WHOIndication = factor(WHOIndication, levels = unique(WHOIndication)))
+
+# Create the bar plot
+Percentage_drugs <- ggplot(Indications_count, aes(x = WHOIndication, y = Percentage)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_text(aes(label = Percentage), position = position_stack(vjust = 1.2), size = 4, color = "black")+
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 75, hjust = 1),axis.text = element_text(size =13)) +
+  labs(title = "Percentage of Drugs by WHO Indication",
+       x = "WHO Indication",
+       y = " Drugs Approved 2010-2019 (%)")
+
+# Print the plot
+print(Percentage_drugs)
+
+
+ggsave("Percentage_drugs.jpg", Percentage_drugs, width = 12,height = 8, dpi =300)
+```
+
+
+```{r Histogram for number of trials by WHO Indications}
+
+# Display unique WHO Indications to understand what data looks like
+unique(clintrial_unique$WHO_Indications)
+
+# Calculate the count of NCTIds in each Phase for each WHO Indication
+trials_by_indication <- Uniquetrials %>%
+  group_by(WHOIndication, New_Phase) %>%
+  summarise(count = n(), .groups = 'drop')
+
+# Order the data by count for better visualization and analysis
+trials_by_indication <- trials_by_indication %>%
+  arrange(desc(count))
+
+# Plotting the number of trials per WHO Indication
+p <- ggplot(trials_by_indication, aes(x = reorder(WHOIndication, -count), y = count)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(title = "Number of Clinical Trials by WHO Indication", x = "WHO Indications", y = "Number of Trials") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# Print the plot
+print(p)
+# Print descriptive statistics for trials by WHO Indication
+summary(trials_by_indication$count)
+
+ggsave("tirals_byindication.jpg", p, width = 8, height=6, dpi =300)
+
+# Plotting the number of trials in each Phase per WHO Indication
+p <- ggplot(trials_by_indication, aes(x = reorder(WHOIndication, -count), y = count, fill = New_Phase)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = ifelse(count>=200,count,"")), position = position_stack(vjust = 0.5), size =6, color = "black")+
+  labs(title = "Number of trials by therapeutic class", x = "WHO Indications", y = "Number of Trials") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 75, hjust = 1),axis.text = element_text(size =16),
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(), 
+    legend.text = element_text(size=14) )
+
+# Print the plot
+print(p)
+
+ggsave("tirals_byphase_WHOIndication.jpg", p, width =16,height =12,dpi =300)
+
+
+
+
+
+
+
+
+
+# Analyse trials that have completion date beyond Approval date
+
+# Generate a more descriptive identifier for each combination of categories, ensuring no leading/trailing commas
+trials_with_combinations <- trials_beyond_approval %>%
+  mutate(
+    # Create a vector for each row concatenating all category labels with conditions
+    Category_Combination = sapply(
+      1:n(),
+      function(i) {
+        labels <- c(
+          if (Accelerated_0_1[i] == 1) "Accelerated" else "",
+          if (Orphan_0_1[i] == 1) "Orphan" else "",
+          if (Priority_0_1[i] == 1) "Priority" else "",
+          if (FastTrack_0_1[i] == 1) "FastTrack" else ""
+        )
+        # Combine the labels and filter out empty entries
+        combo <- paste(labels[labels != ""], collapse = ", ")
+        # If no labels were added, set to "None"
+        if (combo == "") "None" else combo
+      }
+    )
+  ) %>%
+  group_by(WHOIndication, Phase)
+
+# Calculate the total number of trials once
+total_trials <- nrow(trials_with_combinations)
+
+# Calculate the count and percentage of trials for each combination
+percentage_combinations <- trials_with_combinations %>%
+  group_by(Category_Combination, WHOIndication, Phase) %>%
+  summarise(
+    count = n(),  # Count the number of trials in each combination
+    .groups = 'drop'  # Drop the grouping for further operations
+  ) %>%
+  mutate(
+    percentage = (count / total_trials) * 100  # Calculate the percentage of each combination
+  )
+
+# Display the calculated percentages and counts
+print(percentage_combinations)
+```
+
+
+
+
+
+```{r Impute missing CompletionDates}
+
+
+Uniquetrials <- Uniquetrials %>%
+  mutate(CompletionDate = replace(CompletionDate, CompletionDate == 0, NA),
+         StartDate = replace(StartDate, StartDate == 0, NA))
+# Calculate and print the number of missing CompletionDate entries
+print(sum(is.na(Uniquetrials$CompletionDate))) # 426 trials without Completiondates
+
+
+# Impute missing COmpletiondates using median completiondates for each Phase
+
+# Ensuring all date columns are correctly formatted before summarizing or imputing
+Uniquetrials <- Uniquetrials %>%
+  mutate(
+    StartDate = as.Date(StartDate, format = "%Y-%m-%d"),
+    CompletionDate = as.Date(CompletionDate, format = "%Y-%m-%d"),
+    ApprovalDate = as.Date(ApprovalDate, format = "%Y-%m-%d")
+  )
+
+# Calculate median completion dates
+filtered <- Uniquetrials %>%
+  filter(!is.na(CompletionDate) & !is.na(StartDate)) %>%
+  group_by(Phase) %>%
+  summarise(MedianCompletionDate = median(CompletionDate, na.rm = TRUE), .groups = 'drop')
+
+# Joining the median dates with the original dataset
+Uniquetrials <- Uniquetrials %>%
+  left_join(filtered, by = "Phase")
+
+# Impute missing CompletionDates in a new column
+Uniquetrials <- Uniquetrials %>%
+  mutate(
+    ImputedCompletionDate = if_else(is.na(CompletionDate), MedianCompletionDate, CompletionDate)
+  ) %>%
+  select(-MedianCompletionDate)  # Optionally remove the MedianCompletionDate column if it's no longer needed
+
+
+
+#find Trialduration in days,months,years
+
+Uniquetrials <- Uniquetrials %>%
+  filter(!is.na(StartDate))%>% # filter entries where startdate are missing # 36 trials without startDates
+  mutate(
+    Duration_days = as.numeric(ImputedCompletionDate-StartDate),
+    Duration_Months = round(as.numeric(ImputedCompletionDate - StartDate) / 30.44, 2),
+    Duration_years = round(as.numeric(ImputedCompletionDate - StartDate) / 365.25, 2)
+  ) 
+
+# Group by New_Phase and calculate summary statistics
+duration_by_phase <- Uniquetrials %>%
+  group_by(New_Phase) %>%
+  summarise(across(starts_with("Duration"),
+                   list(mean =mean,median =median, mon =min, max =max)))
+
+# Plotting the duration distribution by New_Phase
+durationdistributionbyNew_Phase <- ggplot(clintrial_unique_filtered, aes(x = Duration_Months, fill = New_Phase)) +
+  geom_histogram(binwidth = 5) + # Adjust binwidth as necessary
+  
+  facet_wrap(~ New_Phase) +
+  labs(title = "Distribution of Trial Duration by New_Phase", x = "Duration in Months", y = "Number of Trials") +
+  theme_minimal()
+
+# Print the plot
+print(durationdistributionbyNew_Phase)
+
+# Print the summary statistics
+print(duration_by_phase)
+
+
+    
+
+
+```
+
+
+```{r Trials characteristics for late completiondates}
+
+ #Calculate the percentage of trials with CompletionDate beyond ApprovalDate
+percentage_late_completion <- Uniquetrials %>%
+  filter(ImputedCompletionDate > ApprovalDate) %>%  # Filter trials where completion is beyond approval
+  summarise(
+    Count_Late_Completion = n(),  # Count such trials
+    Total_Trials = nrow(Uniquetrials),  # Get the total number of trials
+    Percentage = (Count_Late_Completion / Total_Trials) * 100, # Calculate percentage
+    Min_ImputedCompletionDate = min(ImputedCompletionDate, na.rm = TRUE),  # Find the earliest completion date
+    Max_ImputedCompletionDate = max(ImputedCompletionDate, na.rm = TRUE)  # Find the latest completion date
+  )
+
+# Display the results
+print(percentage_late_completion)
+
+
+#Characteristics of trials with late completiondates
+
+
+# Calculating percentages for trials with late completion dates grouped by WHOIndication and New_Phase
+trials_late_completiondate <- Uniquetrials %>%
+  filter(ImputedCompletionDate > ApprovalDate) %>%
+  group_by(WHOIndication, New_Phase) %>%
+  summarise(
+    Count = n_distinct(NCTId),  # Count distinct NCTIDs
+    .groups = 'drop'  # Clean up the grouping after summarisation
+  ) %>%
+  ungroup() %>%
+  mutate(Total = sum(Count),  # Total count of all trials with late completion dates
+         Percentage = (Count / Total) * 100)  # Calculate percentage
+print(trials_late_completiondate)
+# Corrected plotting code
+p <- ggplot(trials_late_completiondate, aes(x = reorder(WHOIndication, -Percentage), y = Percentage,fill = New_Phase)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = ifelse(Percentage >= 1, sprintf("%.1f%%", Percentage), "")), position = position_stack(vjust = 0.5), size = 5, color = "black") +
+  labs(title = "Percentage of Trials with Late Completion Dates by Indication and Phase",
+       x = "WHO Indication",
+       y = "Percentage (%)",
+       fill = "Phase") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 75, hjust = 1),
+        axis.text = element_text(size = 16),
+        axis.text.y =element_text(size = 18),
+        plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.text = element_text(size = 14))
+
+# Print the plot
+print(p)
+
+ggsave("trials_late_completiondate.jpg",p, width =16, height = 10, dpi =300)
+
+
+Late_trials <- Uniquetrials %>%
+  distinct(NCTId,.keep_all =TRUE)%>%
+  filter(ImputedCompletionDate > ApprovalDate) %>%
+  summarise(
+    Accelerated = sum(Accelerated_0_1 == 1),
+    Orphan = sum(Orphan_0_1 == 1, na.rm = TRUE),  
+    Total_Trials = n(),  # Total number of unique trials
+    Percentage_accelerated = (Accelerated/ Total_Trials) * 100, # Calculate the percentage
+    Percentage_orphan = (Orphan/ Total_Trials) * 100, # Calculate the percentage
+  )
+
+Late_trials <- Uniquetrials %>%
+  distinct(NCTId, .keep_all = TRUE) %>%
+  filter(ImputedCompletionDate > ApprovalDate) %>%
+  summarise(
+    Total_Trials = n(),
+    Accelerated_1 = sum(Accelerated_0_1 == 1, na.rm = TRUE),
+    Accelerated_0 = sum(Accelerated_0_1 == 0, na.rm = TRUE),
+    Orphan_1 = sum(Orphan_0_1 == 1, na.rm = TRUE),
+    Orphan_0 = sum(Orphan_0_1 == 0, na.rm = TRUE),
+    Priority_1 = sum(Priority_0_1 == 1, na.rm = TRUE),
+    Priority_0 = sum(Priority_0_1 == 0, na.rm = TRUE),
+    FastTrack_1 = sum(FastTrack_0_1 == 1, na.rm = TRUE),
+    FastTrack_0 = sum(FastTrack_0_1 == 0, na.rm = TRUE)
+  ) %>%
+  pivot_longer(
+    cols = c(Accelerated_1, Accelerated_0, Orphan_1, Orphan_0, Priority_1, Priority_0, FastTrack_1, FastTrack_0),
+    names_to = "Category",
+    values_to = "Count"
+  ) %>%
+  mutate(
+    Category_Type = case_when(
+      str_detect(Category, "Accelerated") ~ "Accelerated",
+      str_detect(Category, "Orphan") ~ "Orphan",
+      str_detect(Category, "Priority") ~ "Priority",
+      str_detect(Category, "FastTrack") ~ "FastTrack"
+    ),
+    Status = case_when(
+      str_detect(Category, "_1$") ~ "Yes",
+      str_detect(Category, "_0$") ~ "No"
+    )
+  ) %>%
+  pivot_wider(
+    names_from = Category_Type,
+    values_from = c(Status, Percentage)
+  )
+
+
+
+```
+
+
+
+```{r StarttoApproval years}
+
+Uniquetrials_filtered <- Uniquetrials %>%
+  filter(
+    !is.na(StartDate),  # Ensure that StartDate is not NA
+    !(ImputedCompletionDate > ApprovalDate),  # Filter trials where completion is beyond approval date
+    New_Phase != "Early Phase 1",  # Exclude trials in 'Early Phase 1'
+    Phase != "Early Phase 1"  # Exclude trials in 'Early Phase 1'
+  )
+
+
+# summarise TimetoApproval
+ Uniquetrials_filtered <- Uniquetrials_filtered %>%
+   mutate(ApprovalDate = as.Date(ApprovalDate, format = "%Y-%m-%d"),
+         Time_to_approval_Months = as.numeric(ApprovalDate - StartDate) / 30.44,  # Calculate time to approval in months
+         Time_to_approval_Years = as.numeric(ApprovalDate - StartDate) / 365.25 ) # Calculate time to approval in years
+ 
+ 
+ summary_timetoapproval <- Uniquetrials_filtered %>%
+  group_by(New_Phase, WHOIndication) %>%
+  summarise(across(starts_with("Time"),
+                   list(mean = ~mean(., na.rm = TRUE),
+                        median = ~median(., na.rm = TRUE),
+                        min = ~min(., na.rm = TRUE),
+                        max = ~max(., na.rm = TRUE),
+                        IQR = ~IQR(., na.rm = TRUE))),  # Calculate IQR and handle missing values
+            .groups = 'drop')  # Ensures that the resulting tibble is ungrouped
+ # plot stacked plot for median_approvaltime by WHOIndication
+ 
+ 
+# Ensure plot_data is prepared correctly
+plot_data <- summary_timetoapproval %>%
+  select(New_Phase, WHOIndication, Time_to_approval_Years_median) %>%
+  mutate(WHOIndication = factor(WHOIndication, levels =  sort(unique(.$WHOIndication))))
+
+# Now the WHOIndication should be a factor sorted in alphabetical order
+# Let's check the levels to ensure they are correct
+print(levels(plot_data$WHOIndication))
+  
+phase_colors <- c("#377EB8", "#4DAF4A", "#FF7F00")
+Phase_order <- c("Phase 1", "Phase 2", "Phase 3")
+plot_data$New_Phase <- factor(plot_data$New_Phase, levels = Phase_order)
+color_names <- setNames(phase_colors, Phase_order)
+
+
+
+# Create the plot with explicit settings for factors
+p <- ggplot(plot_data, aes(x = reorder(WHOIndication,-Time_to_approval_Years_median), y = Time_to_approval_Years_median, fill = New_Phase)) +
+  geom_bar(stat = "identity", position = "stack") +
+  geom_text(aes(label = sprintf("%.2f", Time_to_approval_Years_median)),   # Adding text labels with formatted numbers
+            position = position_stack(vjust = 0.5),  # Position the text in the middle of each stack segment
+            color = "black",  # Text color
+            size = 5) + 
+  coord_flip() +  # Makes the bar plot horizontal
+  scale_fill_manual(values = color_names, name = "Phase") +
+  labs(title = "Median Time to Approval by Years for Different Phases",
+       x = "WHO Indication",
+       y = "Median Time to Approval (Years)",
+       fill = "Phase") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text = element_text(size = 16),
+        axis.text.y =element_text(size = 18),
+        plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.text = element_text(size = 19))
+
+# Print the plot
+print(p)
+
+
+ggsave("Median_time_toapproval_years.jpg", p, width =20,height =12,dpi =300)
+```
+
+
+
+
+```{r}
+Uniquetrials <- Uniquetrials %>%
+  mutate(ApprovalDate = as.Date(ApprovalDate, format = "%Y-%m-%d"),
+         Time_to_approval_Months = as.numeric(ApprovalDate - StartDate) / 30.44,  # Calculate time to approval in months
+         Time_to_approval_Years = as.numeric(ApprovalDate - StartDate) / 365.25 ) # Calculate time to approval in years
+
+
+sumamrise_all_trials <- Uniquetrials %>%
+  filter(!New_Phase == "Early Phase 1") %>%
+   group_by(New_Phase, WHOIndication) %>%
+   summarise(across(starts_with("Time"),
+                   list(mean = ~mean(., na.rm = TRUE),
+                        median = ~median(., na.rm = TRUE),
+                        min = ~min(., na.rm = TRUE),
+                        max = ~max(., na.rm = TRUE),
+                        IQR = ~IQR(., na.rm = TRUE))),  # Calculate IQR and handle missing values
+            .groups = 'drop')
+
+
+# Ensure plot_data is prepared correctly
+plot_data <- sumamrise_all_trials %>%
+  select(New_Phase, WHOIndication, Time_to_approval_Years_median) %>%
+  mutate(WHOIndication = factor(WHOIndication, levels =  sort(unique(.$WHOIndication))))
+
+# Now the WHOIndication should be a factor sorted in alphabetical order
+# Let's check the levels to ensure they are correct
+print(levels(plot_data$WHOIndication))
+  
+phase_colors <- c("#377EB8", "#4DAF4A", "#FF7F00")
+Phase_order <- c("Phase 1", "Phase 2", "Phase 3")
+plot_data$New_Phase <- factor(plot_data$New_Phase, levels = Phase_order)
+color_names <- setNames(phase_colors, Phase_order)
+
+
+
+# Create the plot with explicit settings for factors
+p <- ggplot(plot_data, aes(x = reorder(WHOIndication,-Time_to_approval_Years_median), y = Time_to_approval_Years_median, fill = New_Phase)) +
+  geom_bar(stat = "identity", position = "stack") +
+  geom_text(aes(label = sprintf("%.2f", Time_to_approval_Years_median)),   # Adding text labels with formatted numbers
+            position = position_stack(vjust = 0.5),  # Position the text in the middle of each stack segment
+            color = "black",  # Text color
+            size = 5) + 
+  coord_flip() +  # Makes the bar plot horizontal
+  scale_fill_manual(values = color_names, name = "Phase") +
+  labs(title = "Median Time to Approval by Years for Different Phases",
+       x = "WHO Indication",
+       y = "Median Time to Approval (Years)",
+       fill = "Phase") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text = element_text(size = 16),
+        axis.text.y =element_text(size = 18),
+        plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        legend.text = element_text(size = 19))
+
+# Print the plot
+print(p)
+
+ggsave("Timetoaaproval_median_foralltrials.jpg", p , width = 20, height =12, dpi =300)
+```
+
+
+
+
+
+
+```{r TrialDuration by indication }
+
+    
+# Filter out 'Early Phase 1' from the dataset before plotting
+Uniquetrials_filtered <- Uniquetrials %>%
+  filter(!is.na(StartDate),
+  New_Phase != "Early Phase 1" & Phase != "Early Phase 1") # eXclude trials for Early Phase 1
+
+phase_colors <- c("#377EB8", "#4DAF4A", "#FF7F00")
+
+# Create a violin plot for Trial duration in months
+Trialduration_byphase_indication <- ggplot(Uniquetrials_filtered, aes(x = New_Phase, y = Duration_Months, fill = New_Phase)) +
+  geom_violin(trim =FALSE)+  # Creates a box plot
+  facet_wrap(~WHOIndication) +
+  scale_fill_manual(values = setNames(phase_colors, unique(Trials_count$New_Phase)), name = "Phase")+
+  theme_minimal() +  # Applies a minimal theme
+  labs(title = "Violin Plot of Trial Duration by Phase and WHO Indication",
+       x = "Phase",
+       y = "Duration in Months") +
+  theme(strip.text.x = element_text(size=14),
+    strip.background = element_blank(),
+    axis.text.y = element_text(size=14),
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),  # Hide x-axis title
+    legend.text = element_text(size=12),
+    legend.position = "right")  
+
+# Print the plot
+print(Trialduration_byphase_indication)
+
+
+ggsave("Trialduration_byphase_indication_violin.jpg", Trialduration_byphase_indication, width =24,height =12,dpi =300)
+
+# Create a violin plot for Trial duration in years
+Trialduration_byphase_indication_years <- ggplot(Uniquetrials_filtered, aes(x = New_Phase, y = Duration_years, fill = New_Phase))+ geom_violin(trim =FALSE)+  # Creates a box plot
+  facet_wrap(~WHOIndication) +
+  scale_fill_manual(values = setNames(phase_colors, unique(Trials_count$New_Phase)), name = "Phase")+
+  theme_minimal() +  # Applies a minimal theme
+  labs(title = "Violin Plot of Trial Duration by Phase and WHO Indication",
+       x = "Phase",
+       y = "Duration in Years") +
+  theme(strip.text.x = element_text(size=14),
+    strip.background = element_blank(),
+    axis.text.y = element_text(size=14),
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),  # Hide x-axis title
+    legend.text = element_text(size=12),
+    legend.position = "right") 
+
+print(Trialduration_byphase_indication_years)
+ggsave("Trialduration_byphase_indication_years.jpg", Trialduration_byphase_indication_years,width = 24, height =12,dpi =300)
+
+
+
+
+
+
+
+library(lubridate)
+# Calculating the percentage of trials with StartDate within 6 months of ApprovalDate
+# for trials that ended after their ApprovalDate
+percentage_within_6_months <- Uniquetrials %>%
+  distinct(NCTId, .keep_all = TRUE)%>%
+  filter(ImputedCompletionDate > ApprovalDate) %>%  # Filter trials where completion is beyond approval
+  mutate(Within_6_Months = as.numeric(difftime(StartDate, ApprovalDate, units = "days")) <= 180) %>%
+  summarise(
+    Total_Late_Completion = n(),  # Total trials that ended after ApprovalDate
+    Count_Within_6_Months = sum(Within_6_Months, na.rm = TRUE),  # Count trials with StartDate within 6 months of ApprovalDate
+    Percentage = (Count_Within_6_Months / Total_Late_Completion) * 100  # Calculate percentage
+  ) # 100 of the trials started within 6 months
+# Summary of trials with CompletionDates beyond approval dates
+
+
+filtered <- Uniquetrials %>%
+  filter(!ImputedCompletionDate <= ApprovalDate) %>%  # Exclude trials where the completion date is beyond the approval date
+  group_by(WHOIndication)
+# Create a box plot
+
+TrialdurationYears_filteredtrials <- ggplot(filtered, aes(x = WHOIndication, y = Duration_Months, fill = WHOIndication)) +
+  geom_boxplot() +  # Creates a box plot
+  facet_wrap(~New_Phase)+
+  labs(title = "Box Plot of Trial Duration by Phase and WHO Indication",
+       x = "Trial Phase",
+       y = "Duration in Years",
+       fill = "WHO Indication") +
+  theme(strip.text.x = element_text(size=20),
+    strip.background = element_blank(),
+    axis.text.y = element_text(size=20),
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),  # Hide x-axis title
+    axis.title.y = element_text(size =20),
+    legend.text = element_text(size=14),
+    legend.position = "right")  
+# Print the plot
+print(TrialdurationYears_filteredtrials)
+
+ggsave("TrialdurationYears_filteredtrials.jpg", TrialdurationYears_filteredtrials,width =24,height =12,dpi =300)
+
+
+# filter trials whose ImputedCOmpletionDate is beyond Approvaldate
+filtered <- Uniquetrials %>%
+  filter(ImputedCompletionDate <= ApprovalDate)
+
+TrialdurationYears_byphase_indication <- ggplot(filtered, aes(x = WHOIndication, y = Duration_years, fill = WHOIndication)) +
+  geom_boxplot() +  # Creates a box plot
+  facet_grid(~Phase)+
+  theme_minimal() +  # Applies a minimal theme
+  labs(title = "Box Plot of Trial Duration by Phase and WHO Indication",
+       x = "Trial Phase",
+       y = "Duration in Years",
+       fill = "WHO Indication") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),legend.position = "none",axis.text = element_text(size =10))  # Improves label readability
+```
+
+
+
+
+```{r}
+library(dplyr)
+
+# Calculate the IQR thresholds for each Phase
+outliers <- Uniquetrials %>%
+  group_by(Phase) %>%
+  mutate(
+    Q1 = quantile(Duration_years, 0.25),
+    Q3 = quantile(Duration_years, 0.75),
+    IQR = Q3 - Q1,
+    Lower_Bound = Q1 - 1.5 * IQR,
+    Upper_Bound = Q3 + 1.5 * IQR
+  ) %>%
+  ungroup() %>%
+  # Filter rows where Duration_years is an outlier
+  filter(Duration_years < Lower_Bound | Duration_years > Upper_Bound)
+
+# View the new dataset with outliers
+print(outliers)
+
+# Optionally, select only relevant columns to clean up the dataset
+outliers <- outliers %>%
+  select(-c(Q1, Q3, IQR, Lower_Bound, Upper_Bound))
+
+# Now outliers dataset contains only the rows from Uniquetrials that are outliers in Duration_years per Phase.
+library(dplyr)
+
+# Calculate the IQR thresholds for each Phase
+outliers <- Uniquetrials %>%
+  group_by(Phase) %>%
+  mutate(
+    Q1 = quantile(Duration_years, 0.25),
+    Q3 = quantile(Duration_years, 0.75),
+    IQR = Q3 - Q1,
+    Lower_Bound = Q1 - 1.5 * IQR,
+    Upper_Bound = Q3 + 1.5 * IQR
+  ) %>%
+  ungroup() %>%
+  # Filter rows where Duration_years is an outlier
+  filter(Duration_years < Lower_Bound | Duration_years > Upper_Bound)
+
+# View the new dataset with outliers
+print(outliers)
+
+# Optionally, select only relevant columns to clean up the dataset
+outliers <- outliers %>%
+  select(-c(Q1, Q3, IQR, Lower_Bound, Upper_Bound))
+
+# Now outliers dataset contains only the rows from Uniquetrials that are outliers in Duration_years per Phase.
+
+```
+
+
+```{r}
+library(dplyr)
+
+# Calculate the IQR thresholds and filter out outliers for each Phase
+Uniquetrials_no_outliers <- Uniquetrials %>%
+  group_by(Phase) %>%
+  mutate(
+    Q1 = quantile(Duration_years, 0.25, na.rm = TRUE),
+    Q3 = quantile(Duration_years, 0.75, na.rm = TRUE),
+    IQR = Q3 - Q1,
+    Lower_Bound = Q1 - 1.5 * IQR,
+    Upper_Bound = Q3 + 1.5 * IQR
+  ) %>%
+  ungroup() %>%
+  filter(Duration_years >= Lower_Bound & Duration_years <= Upper_Bound) %>%
+  select(-c(Q1, Q3, IQR, Lower_Bound, Upper_Bound)) # Optionally remove the IQR columns
+
+# View the cleaned dataset
+head(Uniquetrials_no_outliers)
+
+```
+
+```{r}
+
+
+# Assuming Uniquetrials_no_outliers is correctly filtered and available
+
+# Create the box plot without outliers
+boxplot_no_outliers <- ggplot(Uniquetrials_no_outliers, aes(x = Phase, y = Duration_years, fill = WHOIndication)) +  # Corrected this line
+  geom_boxplot(alpha = 0.7, coef =5) +
+  facet_wrap(~WHOIndication) +  # Facet by Phase
+  labs(title = "Box Plot of Trial Duration (Years) by Phase (Without Outliers)",
+       x = "",  # Removed "Phase" since faceting makes it redundant
+       y = "Duration in Years") +
+  theme_minimal() +
+  theme(
+    strip.text.x = element_text(size=14),
+    strip.background = element_blank(),
+    axis.text.y = element_text(size=14),
+    axis.text.x = element_text(size=14, angle = 45, hjust = 1),
+    axis.title.x = element_blank(),  # Clear the x-axis title because it is redundant with faceting
+    axis.title.y = element_text(size=14),
+    legend.text = element_text(size=12),
+    legend.position = "right"  # Adjusted to display legend if needed
+  )
+
+# Print the plot
+print(boxplot_no_outliers)
+
+
+
+```
+
+
+
+
+```{r duration to approval}
+
+
+
+Uniquetrials <- Uniquetrials %>%
+  mutate(ApprovalDate = as.Date(ApprovalDate, format = "%Y-%m-%d"),
+         Time_to_approval_Months = as.numeric(ApprovalDate - StartDate) / 30.44,  # Calculate time to approval in months
+         Time_to_approval_Years = as.numeric(ApprovalDate - StartDate) / 365.25 ) # Calculate time to approval in years
+
+
+Uniquetrials_summary <- Uniquetrials %>%
+  group_by(New_Phase, WHOIndication) %>%
+  summarise(across(starts_with("Time"),
+                   list(mean = ~mean(., na.rm = TRUE), 
+                        median = ~median(., na.rm = TRUE), 
+                        min = ~min(., na.rm = TRUE), 
+                        max = ~max(., na.rm = TRUE))),
+            .groups = 'drop')  # Ensures that the resulting tibble is ungrouped
+
+# View the summary data
+print(clintrial_filtered_summary)
+write.csv(clintrial_filtered_summary, "clintrial_filtered_summary.csv", row.names = FALSE)
+
+
+# Plot Timetoapproval by phase and indication
+
+Avg_Yearstoapproval_indication <- ggplot(clintrial_filtered_summary,aes(x =WHOIndication, y = Time_to_approval_Years_median, fill =New_Phase))+
+  geom_bar(stat = "identity",position= position_dodge())+facet_wrap(~New_Phase)+
+  theme_minimal()+
+  labs(title = "Median Time to Approval by Phase and WHO Indication",
+       x ="WHO Indication",
+       y ="Median Time to Approval (Years)", 
+       fill = "Phase")
+
+print(Avg_Yearstoapproval_indication)
+
+
+
+#boxplot to Time to approval years by Phase
+
+
+Time_to_approval_years <- ggplot(clintrial_filtered, aes(x = New_Phase, y = Time_to_approval_Years, fill = New_Phase)) +
+  geom_boxplot(outlier.colour = "red", outlier.shape = 1, position = position_dodge(width = 0.75)) +
+  theme_minimal() +
+  labs(title = "Time to Approval by Phase",
+       x = "Phase",
+       y = "Time to Approval (Years)",
+       fill = "Phase")
+
+print(Time_to_approval_years)
+
+#boxplot to Time to approval years by Phase and WHOIndication
+Time_to_approval_years_indication <- ggplot(clintrial_filtered, aes(x = WHOIndication, y = Time_to_approval_Years, fill =  WHOIndication)) +
+  geom_boxplot(outlier.colour = "red", outlier.shape = 1, position = position_dodge(width = 0.75)) +
+  theme_minimal() + facet_wrap(~New_Phase)+
+  labs(title = "Time to Approval by Phase and WHO Indication",
+       x = "WHO Indication",
+       y = "Time to Approval (Years)",
+       fill = "Phase") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+print(Time_to_approval_years_indication)
+
+
+
+
+```
+
+
+
+
+```{r}
+#filter the trials that started one year before approval and then summarise
+
+
+Trials_start_1yearbefore_Approval <- Uniquetrials %>%
+        filter(!between(StartDate, ApprovalDate - years(1), ApprovalDate) & !New_Phase =="Early Phase 1")
+     
+
+summary<- Trials_start_1yearbefore_Approval %>%
+  group_by(New_Phase, WHOIndication) %>%
+  summarise(across(starts_with("Time"),
+                   list(mean = ~mean(., na.rm = TRUE), 
+                        median = ~median(., na.rm = TRUE), 
+                        min = ~min(., na.rm = TRUE), 
+                        max = ~max(., na.rm = TRUE))),
+            .groups = 'drop')  # Ensures that the resulting tibble is ungrouped
+
+#boxplot to Time to approval years by Phase and WHOIndication
+p <- ggplot(Trials_start_1yearbefore_Approval, aes(x = WHOIndication, y = Time_to_approval_Months, fill =  WHOIndication)) +
+  geom_boxplot(outlier.colour = "red", outlier.shape = 1, position = position_dodge(width = 0.75)) +
+  theme_minimal() + facet_wrap(~New_Phase)+
+  labs(title = "Time to Approval by Phase and WHO Indication",
+       x = "WHO Indication",
+       y = "Time to Approval (Months)",
+       fill = "Phase") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+print(p)
+
+
+
+# There were too many outliers so I am also filtering trials whose startdates are one year before approval and completions dates are 6 months before approval
+Trials_start_1yearbefore_Approval <- Uniquetrials %>%
+  filter(StartDate != ApprovalDate - years(1),  # Excludes start dates exactly one year before approval
+    ImputedCompletionDate > ApprovalDate - months(6) & !New_Phase == "Early Phase 1")
+
+#boxplot to Time to approval years by Phase and WHOIndication
+p <- ggplot(Trials_start_1yearbefore_Approval, aes(x = New_Phase, y = Time_to_approval_Months, fill =  New_Phase)) +
+  geom_boxplot(outlier.colour = "red", outlier.shape = 1, position = position_dodge(width = 0.75)) +
+  theme_minimal() + facet_wrap(~WHOIndication)+
+  labs(title = "Time to Approval by Phase and WHO Indication",
+       x = "WHO Indication",
+       y = "Time to Approval (Months)",
+       fill = "Phase") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+print(p)
+
+
+
+
+
+
+# Pre-calculate distinct counts by Yearsto approval and Phase
+distinct_counts_Timetoapproval <- Trials_start_1yearbefore_Approval %>%
+  group_by(New_Phase,Time_to_approval_Years) %>%
+  summarize(distinct_count = n_distinct(drugid))
+
+# Plot points and trace with lines
+count_curve_Phase <- ggplot(distinct_counts_Timetoapproval, aes(x = Time_to_approval_Years, y = distinct_count, color = New_Phase, group = New_Phase)) +
+   geom_line(stat="smooth") +
+  labs(title = "Distinct Count of Drug IDs by Years to Approval and Phase",
+       x = "Years to Approval",
+       y = "Distinct Count of Drug IDs",
+       color = "Phase") +
+  theme_minimal()
+print(count_curve_Phase)
+
+ggplot(clintrial_filtered, aes(sample = Time_to_approval_Years)) +
+  stat_qq() +
+  stat_qq_line() +
+  ggtitle("Q-Q Plot of Time to Approval Year")
+#Dat is not normal
+
+# Filter out rows where either New_Phase or WHOIndications is NA
+filtered_data <- clintrial_filtered %>%
+  filter(!New_Phase =="Early Phase 1")
+
+# Now create the contingency table
+table_data <- table(filtered_data$New_Phase, filtered_data$WHOIndication)
+
+#Perform the Chi-square test
+Chi_square_test <- chisq.test(table_data)
+# Plot Time to approval for drugs that had priority
+Time_to_approval_years = ggplot(clintrial_filtered, aes(x = New_Phase, y = Time_to_approval_Years, fill= factor(Priority_0_1)))+geom_boxplot()+ theme_minimal()
+
+print(Time_to_approval_years)
+
+#calculate time to approval         
+         
+
+
+```
+
+
+```{r}
+#Plot time to approval for Accelerated designations
+
+# Calculate the number of accelerated approvals per WHOIndication
+accelerated_counts <- clintrial_filtered %>%
+  filter(Accelerated_0_1 == 1) %>%  # Filter for rows where the approval was accelerated
+  group_by(WHOIndication) %>%  # Group data by WHOIndication
+  summarise(Count = n(), .groups = 'drop') %>%  # Count the number of accelerated approvals
+  arrange(desc(Count))  # Arrange the results in descending order
+
+# Display the WHOIndication with the most accelerated approvals
+top_indication <- accelerated_counts[1, ]
+top_indication
+
+# Calculate the number of accelerated approvals per WHOIndication
+Priority_counts <- clintrial_filtered %>%
+  filter(Priority_0_1 == 1) %>%  # Filter for rows where the approval was accelerated
+  group_by(WHOIndication) %>%  # Group data by WHOIndication
+  summarise(Count = n(), .groups = 'drop') %>%  # Count the number of accelerated approvals
+  arrange(desc(Count))  # Arrange the results in descending order
+
+# Display the WHOIndication with the most accelerated approvals
+top_indication <- Priority_counts[1, ]
+top_indication
+
+
+Time_to_approval_years = ggplot(clintrial_filtered, aes(x = New_Phase, y = Time_to_approval_Years, fill= factor(Accelerated_0_1)))+geom_boxplot()+ theme_minimal()
+
+print(Time_to_approval_years)
+
+         
+
+#Plot time to approval for Fastrtack designations
+Time_to_approval_years = ggplot(clintrial_filtered, aes(x = New_Phase, y = Time_to_approval_Years, fill= factor(FastTrack_0_1)))+facet_wrap(~WHOIndication)+geom_boxplot()+ theme_minimal()
+
+print(Time_to_approval_years)
+```
+
+
+```{r Impute missing completiondates}
+
+glimpse(clintrial_unique_filtered)
+clintrial_unique_filtered$ApprovalDate <- as.Date(clintrial_unique_filtered$ApprovalDate)
+
+#Calculate median completiondate by phase
+
+median_completiondates <- clintrial_unique_filtered %>%
+  group_by(Phase) %>%
+  summarize(MedianCompletionDate = median(CompletionDate, na.rm = TRUE), .groups = 'drop')
+print(median_completiondates)
+#join the median date back to original data
+
+clintrial_unique_filtered<- clintrial_filtered %>%
+  left_join(median_completiondates,by = "Phase")
+
+# Imputemissing completiondates using median completion dates for that phase
+
+clintrial_unique_filtered$CompletionDate <- ifelse(is.na(clintrial_unique_filtered$CompletionDate),
+                                            clintrial_unique_filtered$MedianCompletionDate,
+                                            clintrial_unique_filtered$CompletionDate)
+
+glimpse(clintrial_unique_filtered)
+```
+
+
+```{r Trial duration for designations}
+
+
+library(dplyr)
+library(ggplot2)
+
+# Ensure there are no negative durations due to data errors
+clintrial_unique <- clintrial_unique %>%
+  filter(DurationYears >= 0)
+
+# Define the categories for designation status
+designations <- c("Orphan_1Yes_0No", "Priority_1Yes_0No", "FastTrack_1yes_0No", "Breakthrough_1yes_0No", "Accelerated_1yes_0No")
+
+# Loop through the designations and calculate statistics, plot histograms
+for (designation in designations) {
+  cat(paste("\n\nDescriptive Statistics and Distribution for:", designation, "\n"))
+  
+  # Subset data based on designation status (assuming 1 is Yes, 0 is No)
+  designated_data <- clintrial_unique %>%
+    filter(!!rlang::sym(designation) == 1)
+  
+  # Calculate descriptive statistics
+  stats <- designated_data %>%
+    summarise(
+      mean_duration = mean(DurationYears, na.rm = TRUE),
+      median_duration = median(DurationYears, na.rm = TRUE),
+      min_duration = min(DurationYears, na.rm = TRUE),
+      max_duration = max(DurationYears, na.rm = TRUE)
+    )
+  
+  print(stats)
+}
+  # Plotting the distribution of trial duration
+  p <- ggplot(designated_data, aes(x = DurationYears)) +
+    geom_histogram(binwidth = 0.5, fill = "skyblue", color = "black") +
+    labs(title = paste("Distribution of Trial Duration for", designation, "(in Years)"),
+         x = "Duration in Years", y = "Number of Trials") +
+    theme_minimal()
+  
+  print(p)
+
+```
+
+
+```{r}
+
+
+# Ensure there are no negative durations due to data errors
+clintrial_unique <- clintrial_unique %>%
+  filter(DurationYears >= 0)
+
+# Define the categories for designation status
+designations <- c("Orphan_1Yes_0No", "Priority_1Yes_0No", "FastTrack_1yes_0No", "Breakthrough_1yes_0No", "Accelerated_1yes_0No")
+
+# Loop through the designations and calculate statistics, plot histograms
+for (designation in designations) {
+  cat(paste("\n\nDescriptive Statistics and Distribution for:", designation, "\n"))
+  
+  # Subset data based on designation status (assuming 1 is Yes, 0 is No)
+  designated_data <- clintrial_unique %>%
+    filter(!!as.symbol(designation) == 1)
+  
+  # Group data by New_Phase and calculate descriptive statistics for each group
+  stats <- designated_data %>%
+    group_by(New_Phase) %>%
+    summarise(
+      mean_duration = mean(DurationYears, na.rm = TRUE),
+      median_duration = median(DurationYears, na.rm = TRUE),
+      min_duration = min(DurationYears, na.rm = TRUE),
+      max_duration = max(DurationYears, na.rm = TRUE),
+      .groups = 'drop'  # This option automatically ungroups the data after summarising
+    )
+  
+  print(stats)
+  
+  # Plotting the distribution of trial duration for each New_Phase
+  p <- ggplot(designated_data, aes(x = DurationYears)) +
+    geom_histogram(binwidth = 0.5, fill = "skyblue", color = "black") +
+    facet_wrap(~New_Phase) +  # Adds a separate plot for each New_Phase
+    labs(title = paste("Distribution of Trial Duration for", designation, "(in Years)"),
+         x = "Duration in Years", y = "Number of Trials") +
+    theme_minimal()
+  
+  print(p)
+}
+
+```
+
+
+
+```{r}
+
+# Create a new data frame with unique drug IDs
+unique_drugid_df <- data.frame(unique_drugid = unique(clinical_trial$drugid))
+unique_drugid_masterdruglist <- data.frame(unique_drugid = unique(Master_drug_list$Drug_ID))
+write.csv(unique_drugid_df, "unique_drugid_df.csv")
+write.csv(unique_drugid_masterdruglist, "unique_drugid_masterdruglist.csv")
+# Determine the maximum number of rows between the two data frames
+max_rows <- max(nrow(Master_drug_list), nrow(unique_drugid_df))
+
+# Use cbind with NA values to bind the specified columns
+result_df <- cbind(Master_drug_list$Drug_ID[1:max_rows], 
+                   c(unique_drugid_df$unique_drugid, rep(NA, max_rows - nrow(unique_drugid_df))))
+
+
+#rename the two columns in result_df
+colnames(result_df) <- c("drugid_masterdruglist", "drugid")
+result_df <- data.frame(result_df)
+
+#This code iterates through each entry in the "drugid_masterdruglist" column and checks if it's present in the "drugid" column. The result is stored in a new column called "third_column," indicating whether there is a match for each entry in "drugid_masterdruglist."
+
+result_df$third_column <- sapply(result_df$drugid_masterdruglist, function(x) ifelse(x %in% result_df$drugid, "Match", "No Match")) # 10 drugs are missing from clinicaltrial pre approval dataset
+
+
+result <- merged %>%
+  distinct(NCTId,drugid, .keep_all = TRUE) %>%
+  group_by(drugid,NCTId)%>%
+  summarise(unique_combinations = n())
+ 
+print(result)           
+
+
+unique_NCTId <- merged %>%
+  distinct(NCTId, drugid, .keep_all = TRUE) %>%
+  group_by(drugid) %>%
+  summarise(total_unique_NCTId = n())
+print(unique_NCTId)
+
+
+# print duplicated NCTId
+Duplicated_NCTId <- merged %>%
+  group_by(drugid, NCTId) %>%
+  filter(n() > 1) %>%
+  summarise(duplicated_NCTId = list(NCTId))
+print(duplicated_NCTid)
+
+# Print duplicated NCTid and also count duplicated NCTid
+Dup_NCTid <- merged %>%
+  group_by(drugid, NCTId) %>%
+  summarise(count = n()) %>%
+  filter(count > 1) %>%
+  group_by(drugid) %>%
+  summarise(
+    duplicated_NCTId = list(NCTId),
+    count_duplicated_NCTId = n()) %>%
+  ungroup() %>%
+  mutate(Total_duplicated_NCTId = sum(count_duplicated_NCTId))
+ 
+
+# Print the result
+print(Dup_NCTid)
+
+
+## find number of unique drugid 
+unique_drugids = unique(merged$drugid)
+total_unique_drugids = length(unique(clinical_trial$drugid)) #381 drugs in main dataset
+
+
+
+# create a new dataframe that contain only drugids for insulin and coagulation factors
+Filtered_drugids <- merged_distinct %>%
+  filter(str_detect(Target_PharmaProjects, "coagulation|glucagon|insulin"))
+total_unique_filtereddrugids = length(unique(Filtered_drugids$drugid)) # 30 drugs that aree filtered
+write.csv(Filtered_drugids,"filtered_drugids_01102024.csv")
+
+
+
+
+#create a dataframe that keeps all the drugs except for insulin and coagulation factors
+
+selected_trials <- merged_distinct %>%
+  filter(!str_detect(Target_PharmaProjects, "coagulation|glucagon|insulin"))
+total_unique_selecteddrugids = length(unique(selected_trials$drugid)) # 351 drugs being analyzed
+write.csv(selected_trials, "selected_trials_01102024.csv")
+ glimpse(selected_trials) 
+ 
+ #check for NA values in categorical columns (first in class, orphan,nce_biologic)
+ selected_trials = read.csv("selected_trials_01102024.csv",header = TRUE, sep = ",")
+ 
+ # check for null values in selected column
+ null_values <- sum(is.na(selected_trials$Firstinclass))
+ print(null_values)
+ column_datatype <- class(selected_trials$Firstinclass)
+
+# Display the datatype
+print(column_datatype)
+ 
+ 
+
+#change the datatype in some columns like Starttoapprovaldays
+
+selected_trials$StartToApproval_Days = as.numeric(gsub("days","",selected_trials$StartToApproval_Days))
+columns_to_transform = c("TrialDuration", "FinishToApproval_Days")
+selected_trials[columns_to_transform] = lapply(selected_trials[columns_to_transform], function(x) as.numeric(gsub(" days", "", x)))
+
+#change number of days in columns  TrialDuration, StarttoApproval, FinishtoApproval to years
+# Calculate the conversion factor
+days_in_a_year <- 365
+# Convert the number of days to years
+columns = c("TrialDuration", "StartToApproval_Days", "FinishToApproval_Days")
+selected_trials[, columns] <- lapply(selected_trials[, columns], function(x) round(as.numeric(x) / days_in_a_year))
+
+
+
+# Create a new directory named "01222024"
+dir.create("01222024")
+# Set the working directory to the newly created directory
+setwd("01222024")
+
+# Save the CSV file in the current working directory (01222024)
+write.csv(selected_trials, "selected_trial_01222024.csv")
+
+```
+
+
+```{r 01222024}
+
+# set the working directory
+path = "C:\\Users\\parya\\ScienceandIndustry Dropbox\\Payal Arya\\RESEARCH DOTD Clinical Trials\\Working\\Payal Arya\\clinical_trial_preapproval\\01222024"
+setwd(path)
+
+selected_trials <- read.csv("selected_trial_01222024.csv",header = TRUE)
+
+null_values_StartDate <- sum(is.na(selected_trials$StartDate))
+print(null_values_StartDate)
+
+null_values_CompletionDate <- sum(is.na(selected_trials$CompletionDate))
+print(null_values_CompletionDate)
+
+null_values_ApprovalDate <- sum(is.na(selected_trials$ApprovalDate))
+print(null_values_ApprovalDate)
+glimpse(selected_trials)
+
+
+## find the status of trials that are missing CompletionDate
+
+
+trials_missing_completionDate <- selected_trials %>%
+     filter(is.na(CompletionDate)) %>%
+      count(OverallStatus, Phase) 
+     
+  #plot stackedbarplots for trials missing completiondate
+
+ggplot(trials_missing_completionDate , aes(x = Phase, y = n, fill = OverallStatus))+
+  geom_bar(stat = "identity")+geom_text(aes(label = ifelse(n>=5,n,"")), position = position_stack(vjust = 0.5), size = 3, color = "black") + #ifelse statement creates a condition to fill in the text in each stacked bar if the value is greater than or equal to 5
+  labs(x = "Phase", y = "Total NCTIDs", fill = "OverallStatus") +
+  theme(panel.grid = element_blank(),panel.background = element_blank()) # makes the graph with blank background and no grid
+
+
+
+
+
+#Step
+
+Trials_completed_summary <- Trials_completed %>%
+  group_by(Phase) %>%
+  summarize(mean = mean (DurationinYears),sum = sum(DurationinYears),
+            q1 = quantile(DurationinYears,0.25),
+            q3 = quantile(DurationinYears),0.75)
+  
+
+#step 1 filter trials that do not have a StartDate or CompletionDate
+
+Trials_completed <- selected_trials %>%
+  filter(!is.na(CompletionDate), !is.na(StartDate))
+
+# Step 2 Calculate duration of each trial in months and years 
+Trials_completed <- Trials_completed %>%
+  mutate(
+          DurationinMonths = round(as.numeric(difftime(CompletionDate,StartDate, units ="days")/30.44)),
+          DurationinYears = round(as.numeric(difftime(CompletionDate,StartDate, units ="days")/365.25)))
+Trials_completed <- Trials_completed %>%
+  mutate(Trial_duration = as.numeric(difftime(CompletionDate,StartDate, units ="days")))
+#Step3 Draw boxplots for duration for each phase
+
+#draw box plots showing range of duration of each Phase
+DurationinYears_byphase<- ggplot(Trials_completed,aes(x = Phase, y = DurationinYears,color = Phase)) +
+    geom_boxplot(outlier.shape = NA) + labs(x = "Phase", y = "Duration (Years)") + geom_jitter(width = 0.2)+
+    theme(panel.grid = element_blank(),panel.background = element_blank())
+
+
+#Step3 calculate interquartile range and median trial duration in years for trials by Phase
+tapply(Trials_completed$Trial_duration,Trials_completed$Phase,summary)
+
+
+
+# Step 1: Calculate median completion time for each phase
+median_completion_times <- selected_trials %>%
+  filter(!is.na(CompletionDate),!is.na(StartDate)) %>%
+  group_by(Phase) %>%
+  summarise(median_time = round(as.numeric(median(difftime(CompletionDate, StartDate, units = "days"), na.rm = TRUE))))
+
+#Step # 2 find how many trials do not have both StartDate and COmpletionDate
+selected_trials_withoutdates <- selected_trials %>%
+  filter(is.na(CompletionDate) & is.na(StartDate)) %>%
+  summarise(Total_NCTIDs = n()) 
+print(selected_trials_withoutdates)
+#answer 26
+
+print(median_completion_times)
+
+#step 3 impute missing Completiondates based on median time of a trial completion date by Phase
+
+selected_trials_imputed <- selected_trials %>%
+  left_join(median_completion_times, by = "Phase") %>%
+  filter(!is.na(CompletionDate) & !is.na(StartDate)) %>%
+  mutate(
+    ImputedCompletionDate = ifelse(
+      is.na(CompletionDate),
+      as.Date(StartDate)+ median_time,
+      CompletionDate
+    )
+  )
+     
+
+
+#find approval time for each Phase by WHO indication
+
+#step 1 create a new column with Approval time in years for each trial
+selected_trials_imputed <- selected_trials_imputed %>%
+  mutate(
+    YearsToApproval_non_leap_year = round(as.numeric(difftime(ApprovalDate, StartDate, units = "days")) / 365)
+  )
+
+# step 2 summarise median Approval time, Trial duration time for therapeutic class 
+summary_therapeuticclass <- selected_trials_imputed %>%
+  group_by(New_Phase,NEW_Unified_Indication)%>%
+  summarise(median_YearstoApproval = median(YearsToApproval_non_leap_year),
+    median_Trialduration = round(as.numeric(median(difftime(ImputedCompletionDate, StartDate, units = "days")/30.4, na.rm = TRUE))),
+    Total_unique_drugids = n_distinct(drugid))
+
+selected_trials_imputed <- selected_trials_imputed %>%
+  mutate(Trial_Duration_Months = round(as.numeric(difftime(ImputedCompletionDate,StartDate,units = "days")/30.4)))
+
+Average_Duration_By_Phase <- selected_trials_imputed %>%
+  group_by(WHOIndication, New_Phase) %>%
+  summarise(Unique_DrugIDs = n_distinct(drugid),
+            Average_Duration_Months = mean(Trial_Duration_Months))
+
+
+#Summarise all the trials by Phase
+summary_table_Phase <- selected_trials %>%
+  group_by(Phase) %>%
+  summarise(
+    TotalUniqueDrugs = n_distinct(drugid),
+    Total_NCTIDs = n())
+write.csv(summary_table, "summary_table_Phase.csv")
+summary_table_NewPhase <- selected_trials %>%
+  group_by(New_Phase) %>%
+  summarise(
+    TotalUniqueDrugs = n_distinct(drugid),
+    Total_NCTIDs = n())
+write.csv(summary_table, "summary_table_Phase.csv")
+#Summarise all the trials by indication
+summary_table <- selected_trials %>%
+  group_by(Phase, WHOIndication) %>%
+  summarise(
+    TotalUniqueDrugs = n_distinct(drugid),
+    Total_NCTIDs = n())
+write.csv(summary_table, "summary_table.csv")
+# Plot Trials by Phase of development
+
+summary_table_NewPhase %>%
+  mutate(New_Phase = forcats::fct_reorder(as.factor(New_Phase), desc(Total_NCTIDs))) %>%
+  ggplot(aes(x = New_Phase, y = Total_NCTIDs, fill = New_Phase)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), alpha = 0.6, width = 0.8) +
+  geom_text(aes(label = Total_NCTIDs), position = position_dodge(0.8), size = 3, vjust = -0.5) +
+  labs(x = "Phase", y = "Total NCTIDs", fill = "Phase") +
+  theme_minimal() +
+  theme(panel.grid = element_blank(),
+        axis.line = element_line(color = "black", size = 0.5)) +  # Add axis lines
+  scale_y_continuous(expand = c(0, 0)) 
+#Ensure bars touch the axis lines
+ # coord_flip()
+
+
+
+ggsave("Phase_summary.pdf", device = "pdf")
+
+
+# how many trials by phase and indication have a startdate within 1 year of approval 
+
+
+  
+#summarise trials 
+summary_table_start_morethan1y <- selected_trials %>%
+  filter(!between(StartDate, ApprovalDate - years(1), ApprovalDate))%>% #selects trials that started more than 2 years before the approval date
+  group_by(Phase, WHOIndication) %>%
+  summarise(
+    TotalUniqueDrugs = n_distinct(drugid),
+    Total_NCTIDs = n(),
+    MaxTime = max(YearsToApproval_non_leap_year, na.rm = TRUE),
+    avgTime = mean(YearsToApproval_non_leap_year, na.rm = TRUE),
+    mediantime = as.numeric(median(YearsToApproval_non_leap_year, na.rm = TRUE))
+  )
+write.csv(summary_table_start_morethan1y, "summary_table_start_morethan1y_01232024.csv")
+
+
+
+# Pre-calculate distinct counts by TrialDuration and Phase
+distinct_counts <- selected_trials %>%
+  group_by(TrialDuration, New_Phase) %>%
+  summarize(distinct_count = n_distinct(drugid))
+
+# Plot points and trace with lines
+count_curve_Phase <- ggplot(distinct_counts, aes(x = TrialDuration, y = distinct_count, color = New_Phase, group = New_Phase)) +
+  geom_point() +
+  geom_line() +
+  labs(title = "Distinct Count of Drug IDs by Trial Duration and Phase",
+       x = "Trial Duration",
+       y = "Distinct Count of Drug IDs",
+       color = "Phase") +
+  theme_minimal()
+print(count_curve_Phase)
+ggsave("count_curve_Phase.pdf", count_curve_Phase)
+#summarise number of drugs in each phase
+summary_table <- selected_trials %>%
+  
+  group_by(Phase) %>%
+  summarise(TotalUniqueDrugs = n_distinct(drugid),
+  Total_NCTIDs = n(),
+  MaxTime = max(YearsToApproval_non_leap_year, na.rm = TRUE),
+  avgTime = mean(YearsToApproval_non_leap_year, na.rm = TRUE),
+  mediantime = as.numeric(median(YearsToApproval_non_leap_year, na.rm = TRUE)))
+
+# Count trials  per phase per drug when the phases are round up
+count_trials_by_phase <- function(data,output_file) {
+  # Assuming 'data' is your data frame with columns 'NCTId', 'StartDate', 'ApprovalDate', and 'Phase'
+  
+  # Count the total number of trials by Phase
+  total_counts <- data %>%
+    group_by(New_Phase) %>%
+    summarise(total_count = n())
+  
+  # Count the number of trials where start date is 1 year before approval date by Phase
+  Trials_start_1year_before_approval_counts <- data %>%
+    filter(between(StartDate, ApprovalDate - years(1), ApprovalDate)) %>%
+    group_by(New_Phase) %>%
+    summarise(Trials_start_1year_before_approvaldate_count = n())
+  
+  # Merge the two counts by Phase
+  result <- merge(total_counts, Trials_start_1year_before_approval_counts, by = "New_Phase", all.x = TRUE)
+  
+  # Calculate  %age of trials that started 1 year before approval date
+  result <- result %>%
+    mutate(Percentage_of_trials = (Trials_start_1year_before_approvaldate_count/ total_count) *100)
+  
+  # Fill missing values with 0
+  result[is.na(result)] <- 0
+  output_file <- "Trials_start_1year_beforeapproval_counts_by_Newphase.csv"
+  write.csv(result, output_file, row.names = FALSE)
+  return(result)
+}
+result <- count_trials_by_phase(selected_trials,output_file)
+
+# Print the result
+print(result)
+
+
+
+count_trials_by_phase <- function(data,output_file) {
+  # Assuming 'data' is your data frame with columns 'NCTId', 'StartDate', 'ApprovalDate', and 'Phase'
+  
+  # Count the total number of trials by Phase
+  total_counts <- data %>%
+    group_by(Phase) %>%
+    summarise(total_count = n_distinct(NCTId))
+  
+  # Count the number of trials where start date is 1 year before approval date by Phase
+  Trials_start_1year_before_approval_counts <- data %>%
+    filter(between(StartDate, ApprovalDate - years(1), ApprovalDate)) %>%
+    group_by(Phase) %>%
+    summarise(Trials_start_1year_before_approvaldate_count = n_distinct(NCTId))
+  
+  # Merge the two counts by Phase
+  result <- merge(total_counts, Trials_start_1year_before_approval_counts, by = "Phase", all.x = TRUE)
+  
+  # Fill missing values with 0
+  result[is.na(result)] <- 0
+  output_file <- "Trials_start_1year_beforeapproval_counts_by_phase.csv"
+  write.csv(result, output_file, row.names = FALSE)
+  return(result)
+}
+
+# Example usage:
+
+result <- count_trials_by_phase(selected_trials,output_file)
+
+# Print the result
+print(result)
+
+
+# find the number of trials by Phase that ends one year before approvaldate
+count_trials_by_phase <- function(data,output_file) {
+  # Assuming 'data' is your data frame with columns 'NCTId', 'StartDate', 'ApprovalDate', and 'Phase'
+  
+  # Count the total number of trials by Phase
+  total_counts <- data %>%
+    group_by(Phase) %>%
+    summarise(total_count = n_distinct(NCTId))
+  
+  # Count the number of trials where start date is 1 year before approval date by Phase
+  filtered_counts <- data %>%
+    filter(between(CompletionDate, ApprovalDate - years(1), ApprovalDate)) %>%
+    group_by(Phase) %>%
+    summarise(filtered_count = n_distinct(NCTId))
+  
+  # Merge the two counts by Phase
+  result <- merge(total_counts, filtered_counts, by = "Phase", all.x = TRUE)
+  
+  # Fill missing values with 0
+  result[is.na(result)] <- 0
+  # Export result as a CSV file
+  output_file <- "custom_trial_counts_by_phase.csv"
+  write.csv(result, output_file, row.names = FALSE)
+  
+  return(result)
+}
+
+
+Trials_end_1y = count_trials_by_phase(selected_trials,output_file)
+print(Trials_end_1y)
+```
+
+
+
+
+
+```{r}
+# descriptive statistics for first in class drugs
+ # how many trials in each phase?
+ # draw a bargraph with frequencies
+
+# Split the 'Phase' column into separate rows for each phase
+#elected_trials_results <- selected_trials %>%
+ #separate_rows(Phase, sep = ";") %>%
+# group_by(drugid,First_in_class, Phase) %>% # Group by DrugId and Phase, then count the number of trials
+ #summarise(Count = n())
+#rint(selected_trials_results)
+
+
+# check for null values in selected column
+ null_values <- sum(is.na(selected_trials$NCE_Biologic_1_0))
+ print(null_values)
+ column_datatype <- class(selected_trials$NCE_Biologic_1_0)
+
+# Display the datatype
+print(column_datatype)
+
+# some entries in Phase column are like Phase1;Phase2 or Phase2;Phase3
+#phases <- c("Early Phase 1", "Phase 1", "Phase 2", "Phase 3")
+
+#phases <- c("Phase1", "Phase2", "Phase3")
+
+#We will countPhase1;Phase entries in Phase2, Phase2;Phase3 entries in Phase3
+# Create a new column for the highest phase
+#selected_trials$Highest_Phase <- ifelse(str_detect(selected_trials$Phase, ";"), sapply(strsplit(selected_trials$Phase, ";"), function(x) max(x)), selected_trials$Phase)
+
+#selected_trials$Highest_Phase <- NULL
+
+# Create a contingency table
+contingency_table <- table(selected_trials$NCE_Biologic_1_0, selected_trials$Highest_Phase)
+
+# Display the contingency table
+print(contingency_table)
+
+# Convert to proportions
+proportion_table <- prop.table(contingency_table, margin = 2)  # margin = 1 for column-wise proportions
+
+# Display the proportion table
+print(proportion_table)
+
+# Convert proportions to percentages and round off to 2 decimal points
+percentage_table <- round(proportion_table * 100, digits = 2)
+
+# Display the percentage table
+print(percentage_table)
+
+#convert percentage_table to DataFrame
+percentage.df = as.data.frame(percentage_table)
+percentage.df$First_in_class<- rownames(percentage.df)
+percentage.df <- percentage.df %>%
+  select(-First_in_class)
+percentage.df <- percentage.df %>%
+  rename(
+    First_in_class = "Var1",
+    Phase = "Var2",
+    Percentage = "Freq"
+  )
+
+print(percentage.df)
+
+
+# Create a bar plot using ggplot
+ggplot(percentage.df, aes(x = First_in_class, y = Percentage, fill = Phase)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(title = "Percentage of Trials in Each Phase",
+       x = "First_in_class",
+       y = "Percentage") +
+  scale_fill_manual(values = c("Phase 1" = "red", "Early Phase 1"= "gray", "Phase 2" = "green", "Phase 3" = "blue")) +
+  theme_minimal()
+# Display the result
+print(result)
+ 
+```
+```{r}
+# group your data based on if the drug is orphan
+
+# Split the 'Phase' column into separate rows for each phase
+#selected_trials_Orphan <- selected_trials %>%
+  #separate_rows(Phase, sep = ";") %>%
+  #group_by(drugid,Orphan_0_1, Phase) %>% # Group by DrugId and Phase, then count the number of trials
+ # summarise(Count = n())
+#print(selected_trials_results)
+
+# Create a contingency table for DrugId and Phase
+#contingency_table <- table(selected_trials_Orphan$Orphan_0_1, selected_trials_Orphan$Phase)
+# Convert to proportions
+#proportion_table <- prop.table(contingency_table, margin = 1)  # margin = 1 for row-wise proportions
+
+# Display the proportion table
+#print(proportion_table)
+
+# Convert proportions to percentages and round off to 2 decimal points
+#percentage_table <- round(proportion_table * 100, digits = 2)
+
+# Display the percentage table
+#print(percentage_table)
+
+#convert percentage_table to DataFrame
+#percentage.df = as.data.frame(percentage_table)
+#percentage.df$Orphan<- rownames(percentage.df)
+#percentage.df <- percentage.df %>%
+  #select(-Orphan)
+#percentage.df <- percentage.df %>%
+ # rename(
+  #  Orphan = "Var1",
+  #  Phase = "Var2",
+   # Percentage = "Freq"
+ # )
+
+#print(percentage.df)
+
+
+# Create a bar plot using ggplot
+ggplot(percentage.df, aes(x = Orphan, y = Percentage, fill = Phase)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(title = "Percentage of Trials in Each Phase",
+       x = "Orphan",
+       y = "Percentage") +
+  scale_fill_manual(values = c("Phase 1" = "red", "Early Phase 1"= "gray", "Phase 2" = "green", "Phase 3" = "blue")) +
+  theme_minimal()
+ # how many trials
+```
+
+```{r}
+# how many drugs are NEW chemical entity?
+# What is the average trial duration for all phases
+
+
+# Step 1: Calculate Percentage of New Chemical Entities
+
+# Remove duplicates based on 'Drugid' and 'NCE'
+selected_trials_distinct_drugid <- distinct(selected_trials, drugid, NCE_Biologic_1_0, .keep_all = TRUE)
+
+# Step 1: Calculate Proportion of New Chemical Entities using table()
+chemical_entity_table <- table(selected_trials_distinct_drugid$NCE_Biologic_1_0)
+proportion_summary <- data.frame(
+  Proportion_New_Chemical_Entities = chemical_entity_table['Yes'] / sum(chemical_entity_table),
+  Proportion_Not_New_Chemical_Entities = chemical_entity_table['NO'] / sum(chemical_entity_table)
+)
+
+print(proportion_summary)
+
+#70%NCE and 30 %Biologics
+
+
+
+#median length of Each trial from start date to Approval year
+# Assuming your data frame is named 'df' and you have loaded the dplyr and lubridate libraries
+library(dplyr)
+library(lubridate)
+
+# Convert start date and approval date to Date objects
+selected_trials <- selected_trials %>%
+  mutate(
+    ApprovalDate = mdy(ApprovalDate),
+    
+    )
+glimpse(selected_trials)
+
+Phase_1 <- selected_trials %>%
+  group_by(Phase) %>%
+  filter(Phase == "Phase 1")
+
+# Group by Phase and countNCTIds for each phase that completed  within 1 year of Approval Date
+
+Trials_end1year_approvaldate <- Phase_1 %>%
+  filter(between(CompletionDate, ApprovalDate - years(1), ApprovalDate)) %>%
+  mutate(DurationInMonths = round(as.numeric(difftime(ApprovalDate, StartDate, units = "days")) / 30.44, digits = 2)) %>%
+  summarise(TotalUniqueDrugs = n_distinct(drugid),
+  Total_NCTIDs = n())
+
+# Calculate the number of unique drug IDs in each phase
+unique_drug_counts <- selected_trials %>%
+  group_by(Phase) %>%
+  summarise(Unique_Drug_Count = n_distinct(drugid))
+
+# Create the bar plot for the distribution of unique drug IDs
+bar <- ggplot(unique_drug_counts, aes(x = Phase, y = Unique_Drug_Count, fill = Phase)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Distribution of Unique Drug IDs by Phase",
+       x = "Phase",
+       y = "Unique Drug ID Count") +
+  theme_minimal()
+
+# Create the box plot for the distribution of years to approval by Phase
+box <- ggplot(selected_trials, aes(x = Phase, y = YearsToApproval_non_leap_year, fill = Phase)) +
+  geom_boxplot() +
+  labs(title = "Distribution of Years to Approval by Phase",
+       x = "Phase",
+       y = "Years to Approval") +
+  theme_minimal()
+
+
+
+EarlyPhase <- selected_trials %>%
+  group_by(Phase) %>%
+  filter(Phase == "Early Phase 1")
+
+write.csv(EarlyPhase, "EarlyPhase.csv")
+sumamry_EarlyPhase1 <- EarlyPhase %>%
+  group_by(NEW_Unified_Indication)%>%
+  summarise(
+    TotalUniqueDrugs = n_distinct(drugid),
+    MaxTime = max(YearsToApproval_non_leap_year, na.rm = TRUE),
+    avgTime = mean(YearsToApproval_non_leap_year, na.rm = TRUE),
+    mediantime = as.numeric(median(YearsToApproval_non_leap_year, na.rm = TRUE))
+  )
+
+#what is the mdeian length of each phase years to approval
+summary_table <- selected_trials %>%
+  group_by(Phase,NEW_Unified_Indication) %>%
+  summarise(
+    TotalUniqueDrugs = n_distinct(drugid),
+    
+    MaxTime = max(YearsToApproval_non_leap_year, na.rm = TRUE),
+    avgTime = round(mean(YearsToApproval_non_leap_year, na.rm = TRUE), digits =2),
+    mediantime = as.numeric(median(YearsToApproval_non_leap_year, na.rm = TRUE))
+  )
+
+summary_table_Phase_indication <- selected_trials %>%
+  filter(!between(StartDate, ApprovalDate - years(2), ApprovalDate))%>% #selects trials that started more than 2 years before the approval date
+  group_by(Phase, NEW_Unified_Indication) %>%
+  summarise(
+    TotalUniqueDrugs = n_distinct(drugid),
+    Total_NCTIDs = n(),
+    MaxTime = max(YearsToApproval_non_leap_year, na.rm = TRUE),
+    avgTime = mean(YearsToApproval_non_leap_year, na.rm = TRUE),
+    mediantime = as.numeric(median(YearsToApproval_non_leap_year, na.rm = TRUE))
+  )
+
+
+
+Phase1_2 <- selected_trials %>%
+  group_by(Phase) %>%
+  filter(Phase %in% c("Phase 1", "Phase 1; Phase 2"))
+glimpse(Phase1_2)
+
+Phase1_2 <- selected_trials %>%
+  group_by(Phase) %>%
+  filter(Phase %in% c("Phase 1", "Phase 1; Phase 2") & OverallStatus == "Completed")
+
+# Filter trials within a range of 2 years before ApprovalDate
+filtered_Phase1_2 <- Phase1_2 %>%
+  filter(between(StartDate, ApprovalDate - years(2), ApprovalDate)) # Use the 'between' function to filter rows where StartDate is within the specified range
+glimpse(Phase1_2)
+
+
+
+# Filter rows where 'Phase' is either "Phase 1" or "Phase 1; Phase 2"
+Phase1And2 <- selected_trials %>%
+  group_by(Phase) %>%
+  filter(Phase %in% c("Phase 1", "Phase 2"))
+  
+# Print a summary of the Phase1_2 dataframe
+glimpse(Phase1And2)
+
+# Further filter Phase1_2 to include only rows with 'OverallStatus' as "Completed"
+Phase1And2 <- Phase1And2 %>%
+  filter(OverallStatus == "Completed")
+
+# Print a summary of the updated Phase1_2 dataframe
+glimpse(Phase1And2)
+
+# Filter trials within a range of 2 years before ApprovalDate
+filtered_Phase1And2 <- Phase1And2 %>%
+  filter(between(StartDate, ApprovalDate - years(2), ApprovalDate))
+# Use the 'between' function to filter rows where StartDate is within the specified range
+
+# Print a summary of the filtered_Phase1_2 dataframe
+glimpse(filtered_Phase1_2)
+
+# Group by Phase and countNCTIds for each phase that within 2 years of Approval Date
+
+Trials_starttoapproval_within2years <- selected_trials %>%
+  filter(between(StartDate, ApprovalDate - years(2), ApprovalDate)) %>%
+  mutate(DurationInMonths = round(as.numeric(difftime(ApprovalDate, StartDate, units = "days")) / 30.44, digits = 2)) %>%
+ 
+  Trials_endtoapproval_within2years <- selected_trials %>%
+  filter(between(CompletionDate, ApprovalDate - years(2), ApprovalDate)) %>%
+  mutate(endtoapproval_months = round(as.numeric(difftime(ApprovalDate, CompletionDate, units = "days")) / 30.44, digits = 2)) %>%
+  
+  
+  Trials_endtoapproval_within1years <- selected_trials %>%
+  filter(between(CompletionDate, ApprovalDate - years(1), ApprovalDate)) %>%
+  mutate(endtoapproval_months = round(as.numeric(difftime(ApprovalDate, CompletionDate, units = "days")) / 30.44, digits = 2)) 
+  summarise(max_duration_value = max(DurationInMonths, na.rm = TRUE))
+  
+  #filter trials that ended exactly 2 years before approval date
+  Trials_End_2yebefore_approval <- selected_trials %>%
+  mutate(DurationInMonths = round(as.numeric(difftime(ApprovalDate, CompletionDate, units = "days")) / 30.44, digits = 2)) %>%
+  filter(between(CompletionDate, ApprovalDate - years(2), ApprovalDate - days(1)))
+
+max_duration_value <- max(Trials_starttoapproval_within2years$DurationInMonths, na.rm = TRUE)
+
+print(max_duration_value)
+
+
+print(Trials_starttoapproval_within2years$max_duration_value)
+
+  nctid_counts_by_phase <- filtered_trials %>%
+  group_by(Phase) %>%
+  summarise(Total_NCTIDs = n())
+nctid_counts_by_phase_indication <- Trials_starttoapproval_within2years %>%
+  group_by(Phase, NEW_Unified_Indication) %>%
+  summarise(Total_NCTIDs = n())
+write.csv(nctid_counts_by_phase_indication, "Trials_byphase_indication_within2yearsofapproval.csv")
+
+ctid_counts_by_phase <- selected_trials %>%
+  group_by(Phase) %>%
+  summarise(Total_NCTID_Occurrences = n())
+ctid_counts_by_phase_indication <- selected_trials %>%
+  group_by(Phase, NEW_Unified_Indication) %>%
+  summarise(Total_NCTID_Occurrences = n())
+
+write.csv(ctid_counts_by_phase_indication, "Trials_byphase_indication.csv")
+write.csv(Phase1_2, "Phase1_2.csv")
+sumamry_Phase1_2 <- Phase1_2 %>%
+  summarise(
+    TotalUniqueDrugs = n_distinct(drugid),
+    MaxTime = as.numeric(max(YearsToApproval_non_leap_year, na.rm = TRUE)),
+    avgTime = as.numeric(mean(YearsToApproval_non_leap_year, na.rm = TRUE)),
+    mediantime = as.numeric(median(YearsToApproval_non_leap_year, na.rm = TRUE))
+  )
+
+MedianTime = ceiling(median(YearsToApproval_non_leap_year, na.rm = TRUE))  
+ 
+#find how many trials dont have an completion date()
+count_of_zeros <- sum(selected_trials$CompletionDate == 0, na.rm = TRUE)
+print(count_of_zeros)
+
+```
+```{r}
+# plot density plots for trials that ended within 1 year of approval 
+
+
+#Plot distribution plots for trials in each phase
+
+#Density plot for trials that ended within one year of first approval date
+
+filtered_trials <- selected_trials %>%
+  mutate(DurationInMonths = ifelse(between(CompletionDate, ApprovalDate - years(1), ApprovalDate - months(6)),
+                                  as.numeric(difftime(ApprovalDate, CompletionDate, units = "days")) / 30.44, # Approximate number of days in a month
+                                  NA)) %>%
+  filter(between(CompletionDate, ApprovalDate - years(1), ApprovalDate - months(6))) 
+filtered_trials %>%
+  #group_by(Phase) %>%
+  ggplot(aes(x = Phase, fill = Phase)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Density Plot of Trials by Phase", x = "Phase", y = "Density")
+\
+#Density plot for trials that ended within one year of first approval date
+filtered_trials_6M <- selected_trials %>%
+  filter(!between(CompletionDate, ApprovalDate - months(6), ApprovalDate)) 
+  filtered_trials_6M %>%
+  group_by(Phase) %>%
+  ggplot(aes(x = Phase, fill = Phase)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Density Plot of Trials by Phase", x = "Phase", y = "Density")
+
+filtered_trials_2Y <- selected_trials %>%
+  filter(between(CompletionDate, ApprovalDate - years(2), ApprovalDate)) 
+filtered_trials_2Y %>%
+  group_by(Phase) %>%
+  ggplot(aes(x = Phase, fill = Phase)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Density Plot of Trials by Phase", x = "Phase", y = "Density")
+selected_Trials_morethan2y <- selected_trials %>%
+  filter(CompletionDate > ApprovalDate - years(2))
+```
+

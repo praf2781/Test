@@ -1,0 +1,101 @@
+---
+title: "Analysis"
+output: html_document
+date: "2024-02-15"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+```{r}
+library(tidyr)
+library(ggplot2)
+library(dplyr)
+library(readr)
+
+```
+
+```{r load_csvfile}
+Grant_data = read.csv("Grant Data_02122024.csv")
+glimpse(Grant_data)
+```
+
+```{r Data_cleaning}
+# Data cleaning
+Grant_data_cleaned <- Grant_data %>%
+  select_all(~gsub("\\s+|\\.", "_", .))  #replace white spaces with underscore
+Grant_data_cleaned <- Grant_data_cleaned %>%
+  mutate(`Amount_USD (Millions)` = round(Amount_USD_ / 1e6, digits = 2)) 
+
+
+
+ glimpse(Grant_data)
+
+ #find top recipient for FY 2022
+ 
+Top_ten <- Grant_data_cleaned %>%
+  filter(Year == "FY 2022") %>%
+  top_n(10, `Amount_USD (Millions)`)
+# Plot the top 10 recipient with their amounts for year 2022
+ 
+ggplot(Top_ten, aes(x = reorder(Recipient, -`Amount_USD (Millions)`), y = `Amount_USD (Millions)`, fill = Disease_Health_area)) +
+  geom_col() +
+  geom_text(aes(label = `Amount_USD (Millions)`), vjust = -0.5, size = 3, color = "black") +
+  scale_fill_discrete(guide = guide_legend(title = "Disease/Health Area")) +
+  labs(x = "Recipient Organization", y = "Amount USD", title = "Top Ten Recipients by Amount (USD)")
+
+# find top recipients by year
+
+Grant_data_top <- Grant_data_cleaned %>%
+  group_by(Year) %>%
+  top_n(10, `Amount_USD (Millions)`)
+Grant_data_cleaned$Recipient <- iconv(Grant_data_cleaned$Recipient, from = "latin1", to = "UTF-8")
+
+ 
+# plot top recipients by year
+library(cowplot)
+
+# Group the data by year
+grouped_data <- Grant_data_cleaned %>%
+  group_by(Recipient,Disease_Health_area)
+
+library(ggplot2)
+
+# Plotting recipient on the x-axis and amount on the y-axis
+library(ggplot2)
+
+ggplot(Grant_data_cleaned, aes(x = Recipient, y = `Amount_USD (Millions)`, fill = Year)) +
+  geom_bar(stat = "identity") +
+  scale_y_continuous(labels = scales::dollar_format(prefix = "$"),
+                     name = "Amount (USD)") +
+  labs(x = "Recipient", y = "Amount (USD)", 
+       title = "Amount Received by Recipient") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+
+```
+
