@@ -1,0 +1,299 @@
+---
+title: "Untitled"
+output: html_document
+date: "2025-09-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r}
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(tidytext)
+library(tidyr)
+library(lubridate)
+library(forcats)
+library(MASS)
+library(gt)
+```
+
+
+
+
+```{r}
+
+
+clintrial_unique <- read.csv("C:\\Users\\parya\\ScienceandIndustry Dropbox\\Payal Arya\\RESEARCH DOTD Clinical Trials\\Working\\Payal Arya\\clinical_trial_preapproval\\Clin_trials_preapp_unique_03252024.csv")
+
+clintrial_unique <- clintrial_unique %>%
+  mutate(New_Phase = gsub(".*;\\s*([^;]+)$", "\\1", Phase)) %>%
+  mutate(New_Phase = gsub("Phase(\\d+);Phase(\\d+)", "Phase\\2", New_Phase))
+
+clintrial_unique <- clintrial_unique %>%
+  mutate(Orphan_0_1 = coalesce(Orphan.x,Orphan.y),
+         Accelerated_0_1= coalesce(Accelerated.x,Accelerated.y),
+         Priority_0_1 = coalesce(Priority.x,Priority.y),
+         FastTrack_0_1 = coalesce(FastTrack.x,FastTrack.y)) %>%
+         dplyr::select(-Orphan.x, -Orphan.y, -Accelerated.x,-Accelerated.y,-Priority.x,-Priority.y
+                ,-FastTrack.x,-FastTrack.y)
+
+
+
+Uniquetrials <- clintrial_unique %>%
+  filter(!str_detect(Target_PharmaProjects, "coagulation")) #filtering trials for coagulation factors
+# Calculate median completion dates
+filtered <- Uniquetrials %>%
+  filter(!is.na(CompletionDate) & !is.na(StartDate)) %>%
+  group_by(Phase) %>%
+  summarise(MedianCompletionDate = median(CompletionDate, na.rm = TRUE), .groups = 'drop')
+
+# Joining the median dates with the original dataset
+Uniquetrials <- Uniquetrials %>%
+  left_join(filtered, by = "Phase")
+
+# Impute missing CompletionDates in a new column
+Uniquetrials <- Uniquetrials %>%
+  mutate(
+    ImputedCompletionDate = if_else(is.na(CompletionDate), MedianCompletionDate, CompletionDate)
+  ) %>%
+  dplyr::select(-MedianCompletionDate)  # Optionally remove the MedianCompletionDate column if it's no longer needed
+Uniquetrials$New_Phase <- factor(Uniquetrials$New_Phase,levels = c("Early Phase 1","Phase 1", "Phase 2", "Phase 3") )
+Uniquetrials$Accelerated_0_1 <-factor(Uniquetrials$Accelerated_0_1,levels = c("0", "1"))
+Uniquetrials$WHOIndication <- factor(Uniquetrials$WHOIndication,levels = c("Cardiovascular diseases","Diabetes mellitus","Digestive diseases","Endocrine, blood, immune disorders", "Genitourinary diseases","Infectious and parasitic diseases","Mental and substance use disorders", "Musculoskeletal system" , "Neoplasms", "Neurological conditions", "Respiratory infection and diseases", "Sense organ diseases", "Skin diseases", "Other") )
+Uniquetrials$NCE_1_Biologic_0 <- factor(Uniquetrials$NCE_1_Biologic_0,levels = c("0", "1") )
+# Tag trials based on completion status relative to approval
+Uniquetrials <- Uniquetrials %>%
+  mutate(Trial_Status = case_when(
+    !is.na(ImputedCompletionDate) & ImputedCompletionDate < ApprovalDate ~ "finished before approval",
+    !is.na(ImputedCompletionDate) & ImputedCompletionDate >= ApprovalDate ~ "not finished before approval",
+    TRUE ~ "missing completion date"
+  ))
+```
+
+
+
+```{r Updating clinicaltrial preapproval data with Indication labels}
+# 1) Load
+df <- readr::read_csv("C:\\Users\\parya\\ScienceandIndustry Dropbox\\Payal Arya\\RESEARCH DOTD Clinical Trials\\Working\\Payal Arya\\clinical_trial_preapproval\\clinicaltrial_icdcodemapping\\snomed_hierarchical_output_fulldataset.csv",
+                      show_col_types = FALSE)
+
+# 2) Filter rows where condition_terms is not empty
+df <- df %>%
+  filter(!is.na(condition_terms), str_trim(condition_terms) != "")
+
+# 3) Lead vs Alternative from SNOMED_Hierarchical_Match
+# Assumes this column is logical or 0/1
+df <- df %>%
+  mutate(
+    Indication_Type = case_when(
+      SNOMED_Hierarchical_Match == TRUE ~ "Lead",
+      SNOMED_Hierarchical_Match == FALSE ~ "Alternative",
+      SNOMED_Hierarchical_Match == 1 ~ "Lead",
+      SNOMED_Hierarchical_Match == 0 ~ "Alternative",
+      TRUE ~ NA_character_
+    )
+  )
+
+# 4) Neoplasm vs Non Neoplasm
+df <- df %>%
+  mutate(
+    Indication_Group = if_else(WHOIndication == "Neoplasms", "Neoplasm", "Non-Neoplasm")
+  )
+library(dplyr)
+library(stringr)
+library(readr)
+
+# your SNOMED derived table is df, already built above
+# ensure join keys are clean
+df_clean <- df %>%
+  mutate(
+    drugid = str_trim(tolower(as.character(drugid))),
+    NCTId  = str_trim(as.character(NCTId))
+  )
+
+# collapse to one row per drugid and NCTId
+# tie break rules
+#   Indication_Type: Lead beats Alternative if both appear
+#   Indication_Group: Neoplasm beats Non-Neoplasm if both appear
+df_anno <- df%>%
+  group_by(drugid, NCTId) %>%
+  summarise(
+    Indication_Type = case_when(
+      any(Indication_Type == "Lead", na.rm = TRUE) ~ "Lead",
+      any(Indication_Type == "Alternative", na.rm = TRUE) ~ "Alternative",
+      TRUE ~ NA_character_
+    ),
+    Indication_Group = case_when(
+      any(Indication_Group == "Neoplasm", na.rm = TRUE) ~ "Neoplasm",
+      any(Indication_Group == "Non-Neoplasm", na.rm = TRUE) ~ "Non-Neoplasm",
+      TRUE ~ NA_character_
+    ),
+    .groups = "drop"
+  )
+
+# load your trials universe
+# Uniquetrials should already be in memory. If not, read it here.
+# Uniquetrials <- read_csv("path/to/Uniquetrials.csv", show_col_types = FALSE)
+
+
+# choose best available join keys
+join_keys <- intersect(names(Uniquetrials), c("drugid","NCTId"))
+if (length(join_keys) == 0L) stop("Neither drugid nor NCTId found in Uniquetrials")
+
+# left join keeps every trial from Uniquetrials
+final_trials <- Uniquetrials %>%
+  left_join(df_anno, by = join_keys)
+
+# quick diagnostics
+matched <- sum(!is.na(final_trials$Indication_Type))
+total   <- nrow(final_trials)
+message("Annotated rows: ", matched, " of ", total)
+
+# save
+write_csv(final_trials, "Uniquetrials_with_indication_flags.csv")
+
+
+finaltrials_datemodified <- final_trials  %>%
+  mutate(
+    StartDate = as.Date(StartDate,format = "%m/%d/%Y"),
+    CompletionDate = as.Date(CompletionDate,format = "%m/%d/%Y"),
+    ApprovalDate = as.Date(ApprovalDate,format = "%m/%d/%Y")
+  )
+```
+
+```{r Trials for Opdivo}
+Trials_Opdivo <- finaltrials_datemodified %>%
+  filter(BrandName == "Opdivo")
+
+Summary_trials_Opdivo <- Trials_Opdivo %>%
+  group_by(New_Phase) %>%
+  summarise(num_trials = n_distinct(NCTId))
+
+#write.csv(Summary_trials_Opdivo,"Summary_trials_Opdivo.csv")
+
+#check how may trials are in reporter
+# 1) NIH lookup
+report_lookup <- report %>%
+  distinct(`ClinicalTrials.gov ID`) %>%
+  transmute(NCTId = toupper(str_trim(as.character(`ClinicalTrials.gov ID`))))
+
+# 2) Label NIH vs Non-NIH
+NIH_trials_Opdivo <- Trials_Opdivo %>%
+  mutate(
+    NCTId = toupper(str_trim(as.character(NCTId))),
+    Indication_Type = if_else(is.na(Indication_Type) | str_trim(Indication_Type) == "",
+                              "Unmapped", as.character(Indication_Type)),
+    NIH_Sponsored = NCTId %in% report_lookup$NCTId,
+    NIH_Label = if_else(NIH_Sponsored, "NIH", "Non-NIH")
+  )
+
+summary_NIHTrials_Opdivo <- NIH_trials_Opdivo %>%
+  group_by(NIH_Label)%>%
+  summarise(num_trials =n_distinct(NCTId))
+#write.csv(summary_NIHTrials, "summary_NIHTrials_Opdivo.csv")
+
+#NIHTrials are truly sponsred by NIH
+
+# helpers
+std_nct <- function(x) toupper(str_trim(as.character(x)))
+
+# 0) Inputs
+# Labeled_subset  -> your subset with NIH_Sponsored already labeled
+# merged_data_step7 -> has COMPANY_1_0 per row
+
+# 1) Standardize keys # use the clincial trials
+md <- merged_data_step7 %>%
+  mutate(NCTId = std_nct(NCTId))
+
+
+md_companystatus <- md %>%
+  mutate(Company_status = case_when(COMPANY_1_0=="0" ~ "No Company",COMPANY_1_0== "1"~ "Company"))
+
+std_nct <- function(x) toupper(str_trim(as.character(x)))
+
+
+
+# 3) Attach company status to your subset and classify
+NIH_trials_Opdivowith_company <- NIH_trials_Opdivo %>%
+  left_join(md_companystatus, by = "NCTId")
+
+summary_trials_comapny<- NIH_trials_Opdivowith_company %>%
+  group_by(NIH_Label,Company_status)  %>%
+  summarise(num_trials =n_distinct(NCTId))
+
+
+```
+
+
+
+
+```{r}
+library(dplyr)
+library(stringr)
+
+# 1) Confirm column exists and its type
+colnames(merged_data_step7)
+str(merged_data_step7$COMPANY_1_0)
+
+# 2) Raw NA count and value inventory
+sum(is.na(merged_data_step7$COMPANY_1_0))
+merged_data_step7 %>% count(COMPANY_1_0, sort = TRUE)
+
+# 3) Detect text "NA" or blanks or "null" masquerading as data
+if (is.character(merged_data_step7$COMPANY_1_0)) {
+  merged_data_step7 %>% 
+    mutate(txt = str_to_lower(str_trim(COMPANY_1_0))) %>%
+    count(txt, sort = TRUE)
+}
+
+# 4) Sanity check dataset name
+# Are you using merged_data_step or merged_data_step7 elsewhere?
+ls(pattern = "^merged_data_step")
+
+```
+```{r}
+# Count and percent
+no_corp_summary <- company_status %>%
+  mutate(no_corp = company_label == "No corporate sponsor identified") %>%
+  summarise(
+    no_corp_trials = sum(no_corp),
+    total_trials   = n(),
+    pct_no_corp    = round(100 * no_corp_trials / total_trials, 2)
+  )
+
+no_corp_summary
+
+# Which trials
+no_corp_trials <- company_status %>%
+  filter(company_label == "No corporate sponsor identified") %>%
+  arrange(NCTId)
+
+head(no_corp_trials, 20)   # preview
+
+# Save full list
+write.csv(no_corp_trials, "trials_no_corporate_sponsor.csv", row.names = FALSE)
+```
+

@@ -1,0 +1,3707 @@
+---
+title: "regression"
+output: html_document
+date: "2024-12-05"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+```{r load packages}
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(tidytext)
+library(tidyr)
+library(lubridate)
+library(forcats)
+library(MASS)
+library(gt)
+library(quantreg)
+```
+
+```{r}
+setwd("C:/Users/parya/ScienceandIndustry Dropbox/Payal Arya/RESEARCH DOTD Clinical Trials/Working/Payal Arya/clinical_trial_preapproval/Data_analysis")
+
+
+```
+
+```{r}
+clintrial_unique <- read.csv("C:\\Users\\parya\\ScienceandIndustry Dropbox\\Payal Arya\\RESEARCH DOTD Clinical Trials\\Working\\Payal Arya\\clinical_trial_preapproval\\Clin_trials_preapp_unique_03252024.csv")
+```
+
+
+```{r}
+clintrial_unique <- clintrial_unique %>%
+  mutate(New_Phase = gsub(".*;\\s*([^;]+)$", "\\1", Phase)) %>%
+  mutate(New_Phase = gsub("Phase(\\d+);Phase(\\d+)", "Phase\\2", New_Phase))
+
+clintrial_unique <- clintrial_unique %>%
+  mutate(Orphan_0_1 = coalesce(Orphan.x,Orphan.y),
+         Accelerated_0_1= coalesce(Accelerated.x,Accelerated.y),
+         Priority_0_1 = coalesce(Priority.x,Priority.y),
+         FastTrack_0_1 = coalesce(FastTrack.x,FastTrack.y)) %>%
+         dplyr::select(-Orphan.x, -Orphan.y, -Accelerated.x,-Accelerated.y,-Priority.x,-Priority.y
+                ,-FastTrack.x,-FastTrack.y)
+
+clintrial_unique %>%
+  summarise(Unique_Drugs = n_distinct(drugid))
+unique_drugs <- n_distinct(clintrial_unique$drugid)
+cat("Number of unique drugs in clintrial_unique:", unique_drugs, "\n")
+
+Uniquetrials <- clintrial_unique %>%
+  filter(!str_detect(Target_PharmaProjects, "coagulation")) #filtering trials for coagulation factors
+Uniquetrials %>%
+  summarise(Unique_Drugs = n_distinct(drugid))
+unique_drugs <- n_distinct(Uniquetrials$drugid)
+cat("Number of unique drugs in Uniquetrials:", unique_drugs, "\n")
+# Ensuring all date columns are correctly formatted before summarizing or imputing
+Uniquetrials <- Uniquetrials %>%
+  mutate(
+    StartDate = as.Date(StartDate, format = "%Y-%m-%d"),
+    CompletionDate = as.Date(CompletionDate, format = "%Y-%m-%d"),
+    ApprovalDate = as.Date(ApprovalDate, format = "%Y-%m-%d")
+  )
+  
+#filter trials with missing StartDates
+Uniquetrials <- Uniquetrials %>%
+  filter(!is.na(StartDate))
+
+Uniquetrials %>%
+  summarise(Unique_Drugs = n_distinct(drugid))
+unique_drugs <- n_distinct(Uniquetrials$drugid)
+cat("Number of unique drugs in Uniquetrials:", unique_drugs, "\n")
+write.csv(Uniquetrials,"Uniquetrials06102025.csv", row.names =FALSE)
+```
+
+
+
+```{r Impute missing Completiondates}
+# Calculate median completion dates
+filtered <- Uniquetrials %>%
+  filter(!is.na(CompletionDate) & !is.na(StartDate)) %>%
+  group_by(Phase) %>%
+  summarise(MedianCompletionDate = median(CompletionDate, na.rm = TRUE), .groups = 'drop')
+
+# Joining the median dates with the original dataset
+Uniquetrials <- Uniquetrials %>%
+  left_join(filtered, by = "Phase")
+
+# Impute missing CompletionDates in a new column
+Uniquetrials <- Uniquetrials %>%
+  mutate(
+    ImputedCompletionDate = if_else(is.na(CompletionDate), MedianCompletionDate, CompletionDate)
+  ) %>%
+  dplyr::select(-MedianCompletionDate)  # Optionally remove the MedianCompletionDate column if it's no longer needed
+
+
+```
+
+
+
+```{r}
+Uniquetrials$New_Phase <- factor(Uniquetrials$New_Phase,levels = c("Early Phase 1","Phase 1", "Phase 2", "Phase 3") )
+Uniquetrials$Accelerated_0_1 <-factor(Uniquetrials$Accelerated_0_1,levels = c("0", "1"))
+Uniquetrials$WHOIndication <- factor(Uniquetrials$WHOIndication,levels = c("Cardiovascular diseases","Diabetes mellitus","Digestive diseases","Endocrine, blood, immune disorders", "Genitourinary diseases","Infectious and parasitic diseases","Mental and substance use disorders", "Musculoskeletal system" , "Neoplasms", "Neurological conditions", "Respiratory infection and diseases", "Sense organ diseases", "Skin diseases", "Other") )
+Uniquetrials$NCE_1_Biologic_0 <- factor(Uniquetrials$NCE_1_Biologic_0,levels = c("0", "1") )
+
+Uniquetrials$First_In_Class <- factor(Uniquetrials$First_In_Class,levels = c("0", "1") )
+
+Uniquetrials$Priority_0_1 <- factor(Uniquetrials$Priority_0_1,levels = c("0", "1") )
+Uniquetrials$FastTrack_0_1 <- factor(Uniquetrials$FastTrack_0_1,levels = c("0", "1") )
+```
+
+```{r Load the new master druglist with FDA therapeutic area codes}
+
+DOD_FDA_TAcodes <- read.csv("C:\\Users\\parya\\ScienceandIndustry Dropbox\\Payal Arya\\RESEARCH DOTD Clinical Trials\\Working\\Payal Arya\\clinical_trial_preapproval\\FDA_TA_codes_DOD_PA.csv")
+
+```
+
+```{r}
+
+
+#filter trials that complete after approval date
+TrialsStartedandFinishedbeforeapproval <- Uniquetrials %>%
+  filter(!ImputedCompletionDate > ApprovalDate) 
+```
+
+
+```{r add the number of patients to the dataset}
+Patient_number = read.csv("C:\\Users\\parya\\ScienceandIndustry Dropbox\\Payal Arya\\RESEARCH DOTD Clinical Trials\\Working\\Payal Arya\\Patientnumber_PreapprovalDataset.csv")
+
+# Select only NCTId and EnrollmentCount from the Patient_number dataset
+patient_selected <- dplyr::select(Patient_number, NCTId, EnrollmentCount)
+TrialsStartedandFinishedbeforeapproval_patient <- left_join(TrialsStartedandFinishedbeforeapproval, patient_selected, by = "NCTId")
+glimpse(TrialsStartedandFinishedbeforeapproval_patient)
+```
+
+
+```{r merge the FDA_TA codes with working clinical trial file}
+# Select only NCTId and EnrollmentCount from the Patient_number dataset
+DOD_FDATACodes_selected <- dplyr::select(DOD_FDA_TAcodes, drugid, TACode)
+TrialsStartedandFinishedbeforeapproval_patient <- left_join(TrialsStartedandFinishedbeforeapproval_patient, DOD_FDATACodes_selected, by = "drugid")
+drugs_missing_TACode_full <- TrialsStartedandFinishedbeforeapproval_patient %>%
+  filter(is.na(TACode))
+#summarise trials by FDA_TA codes
+TrialsStartedandFinishedbeforeapproval_FDA <- TrialsStartedandFinishedbeforeapproval_patient %>%
+  group_by(drugid, TACode) %>%
+  summarise(Trialsperdrug = n(),
+       .groups = 'drop'     )
+
+TrialsStartedandFinishedbeforeapproval_FDA_summary <- TrialsStartedandFinishedbeforeapproval_FDA %>%
+  group_by(TACode) %>%
+  summarise(Totaltrials = sum(Trialsperdrug),
+            Uniquedrugs = n_distinct(drugid),
+    Mean = mean(Trialsperdrug, na.rm = TRUE),
+    Median = median(Trialsperdrug, na.rm = TRUE))
+write.csv(TrialsStartedandFinishedbeforeapproval_FDA_summary, "TrialsSummary_By_TACode.csv", row.names = FALSE)
+# Creating the plot with grouped boxplots
+Trialsperdrug_FDAcodes <- ggplot(TrialsStartedandFinishedbeforeapproval_FDA, 
+            aes(x = as.factor(TACode), 
+                y = Trialsperdrug)) +
+  geom_boxplot(outlier.shape = NA) +  # Simple boxplot
+  geom_jitter(position = position_jitter(width = 0.2), 
+              size = 2, alpha = 0.7) +  # Jitter points to show distribution
+  ylim(c(0,50))+labs(
+    title = "Boxplot of Number of Trials by WHO Indication",
+    x = "FDA codes",
+    y = "Number of Trials"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_text(size = 26),  # Adjust legend title size
+    legend.text = element_text(size = 26),  # Adjust legend text size
+    legend.position = "right",
+    panel.background = element_blank()  # Remove background panel
+  )
+
+Trialsperdrug_FDAcodes
+ggsave("Trialsperdrug_FDAcodes.jpg", Trialsperdrug_FDAcodes, width =18, height =12, dpi =300)
+
+trial_cost_exp <- trial_cost_exp %>%
+group_by(drugid,Expedited_Group) %>%
+  summarise(trialcost = sum(TrialCost,na.rm =TRUE)/1e9,
+    Trialsperdrug = n(),
+       .groups = 'drop'     )
+
+trial_cost_exp_summary <- trial_cost_exp_TA %>%
+  group_by(Expedited_Group) %>%
+  summarise(TotalCostMillion = sum(trialcost,na.rm =TRUE),
+            Avg_costMillion = mean(trialcost,na.rm = TRUE),
+            Median_costMillion = median(trialcost,na.rm =TRUE))
+
+TotalCost_therapeutic_expedited <- ggplot(trial_cost_exp_TA, 
+            aes(x = as.factor(TACode), 
+                y = trialcost, 
+                fill = as.factor(Expedited_Group))) +
+  geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Grouped boxplots
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75), 
+              size = 2, alpha = 0.7, color = "black") +  # Jitter points to show distribution
+ ylim(c(0, 200))+labs(
+    title = "Number of Trials by Therapeutic Area and Expedited Group",
+    x = "Therapeutic Area",
+    y = "Cost of trials in Millions",
+    fill = "Expedited Pathway"  # Legend title
+  ) +
+  scale_fill_manual(
+    values = c( "#B0B0B0", "#808080")
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 65, hjust = 1, size = 26),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 28),
+    axis.text.y = element_text(size = 28),
+    legend.title = element_text(size = 26),  # Adjust legend title size
+    legend.text = element_text(size = 26),  # Adjust legend text size
+    legend.position = "right",
+    panel.background = element_blank()  # Remove background panel
+  )
+TotalCost_therapeutic_expedited
+
+
+#summary of cost for Expedited groups
+Trial_cost_exp <- trial_cost_exp %>%
+group_by(drugid,Expedited_Group) %>%
+  summarise(trialcost = sum(TrialCost,na.rm =TRUE)/1e6,
+    Trialsperdrug = n(),
+    PatientCount = sum(EnrollmentCount,na.rm=TRUE),
+    
+       .groups = 'drop'     )
+
+trial_cost_exp_summary <- Trial_cost_exp %>%
+  group_by(Expedited_Group) %>%
+  summarise(TotalCostMillion = sum(trialcost,na.rm =TRUE),
+            Avg_costMillion = mean(trialcost,na.rm = TRUE),
+            Median_costMillion = median(trialcost,na.rm =TRUE),
+            Total_patients = sum(PatientCount,na.rm =TRUE),
+            MeanPatients = mean(PatientCount,na.rm =TRUE),
+            MedianPatients = median(PatientCount,na.rm =TRUE),
+            Totaltrials =sum(Trialsperdrug),
+            Meantrials =mean(Trialsperdrug,na.rm =TRUE),
+            Mediantrials = median(Trialsperdrug,na.rm =TRUE))
+write.csv( trial_cost_exp_summary,"trial_cost_summary_expedited.csv",row.names = FALSE)
+
+Cost_expedited <- ggplot(Trial_cost_exp, 
+            aes(x = as.factor(Expedited_Group), 
+                y = trialcost, 
+                fill = as.factor(Expedited_Group))) +
+  geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Grouped boxplots
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75), 
+              size = 2, alpha = 0.7, color = "black") +  # Jitter points to show distribution
+ ylim(c(0, 500))+
+  labs(
+    title = "Cost of trials by Expedited Group",
+    x = "Expedited Group",
+    y = "Cost of trials in Millions",
+    fill = "Expedited Pathway"  # Legend title
+  ) +
+  scale_fill_manual(
+    values = c( "#B0B0B0", "#808080")
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 65, hjust = 1, size = 26),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 28),
+    axis.text.y = element_text(size = 28),
+    legend.title = element_text(size = 26),  # Adjust legend title size
+    legend.text = element_text(size = 26),  # Adjust legend text size
+    legend.position = "right",
+    panel.background = element_blank()  # Remove background panel
+  )
+Cost_expedited
+
+
+ggsave("Cost_expedited.jpg", Cost_expedited, width =12, height =10, dpi= 300)
+```
+
+
+
+```{r Load the cost file for different TA codes}
+TAcode_perpatientcost <- read.csv("C:\\Users\\parya\\ScienceandIndustry Dropbox\\Payal Arya\\RESEARCH DOTD Clinical Trials\\Working\\Payal Arya\\clinical_trial_preapproval\\TACode_Perpatientcost.csv")
+
+trial_cost_df <- left_join(
+  TrialsStartedandFinishedbeforeapproval_patient,
+  TAcode_perpatientcost,
+  by = c("TACode", "New_Phase" = "New_Phase"),
+  relationship = "many-to-many"
+)
+
+trial_cost_df <- trial_cost_df %>%
+  mutate(TrialCost = EnrollmentCount * WeightedAverageCost)
+
+
+```
+
+
+```{r join the cost by Phase}
+
+glimpse(TrialsStartedandFinishedbeforeapproval_patient)
+Patientcost<- TrialsStartedandFinishedbeforeapproval_patient %>%
+  filter(!Phase %in% c("Phase 1; Phase 2", "Phase 2; Phase 3", "Early Phase 1"))
+
+trial_cost_df <- left_join(
+  Patientcost,
+  TAcode_perpatientcost,
+  by = c("TACode", "New_Phase" = "New_Phase"),
+  relationship = "many-to-many"
+)
+unique(trial_cost_df$Phase)
+
+trial_cost_df <- trial_cost_df %>%
+  mutate(TrialCost = EnrollmentCount * WeightedAverageCost)
+```
+
+```{r cost of trials by therapeutic area}
+
+```
+
+
+```{r Regression for cost of trials for FIC vs non FIC}
+
+# number of patients in NCE vs Biologic
+Patient_FIC<- trial_cost_exp %>%
+  filter(!is.na(First_In_Class)) %>%
+  group_by(drugid, First_In_Class
+           ,Expedited_Group) %>%
+  summarise(Trial_Count = n_distinct(NCTId),
+            Total_patients = sum(EnrollmentCount))
+
+Patient_FIC_summary <- Patient_FIC %>%
+  group_by(First_In_Class,Expedited_Group) %>%
+  summarise(MeanPatients = mean(Total_patients,na.rm =TRUE),
+            MedianPatients = median(Total_patients, na.rm =TRUE),
+            Patients = sum(Total_patients, na.rm =TRUE),
+            TotalTrials = sum(Trial_Count,na.rm =TRUE),
+            MeanTrials = mean(Trial_Count, na.rm =TRUE),
+            MedianTrials = median(Trial_Count,na.rm =TRUE))
+
+#visualize the patient number by  
+
+p <- ggplot(Patient_FIC, aes(x = as.factor(Expedited_Group), y = Total_patients, fill = as.factor(First_In_Class))) +
+  geom_boxplot(outlier.shape = NA, color = "black", alpha = 0.7, position = position_dodge(width = 0.75)) +  
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75), alpha = 0.6, size = 2, color = "black") +  
+  labs(
+    title = "Number of Patients per Phase, Colored by Expedited Pathway Group",
+    x = "Expedited Group",
+    y = "Number of Patients"
+  ) + ylim(c(0,10000))+
+  scale_fill_manual(
+    name = "Drug Type",  # Adding a title for the legend
+    values = c("0" = "#D3D3D3", "1" = "#696969"),  # Custom colors (optional)
+    labels = c("0" = "NON FIC", "1" = "FIC")  # Custom labels for legend
+  )+
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank(),  
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 26),
+    legend.position = "right",
+    panel.background = element_blank()
+  )
+
+print(p)
+
+ggsave("num_patients_FIC_expedited.jpg", p,width =12, height = 10 , dpi =300 )
+
+trial_cost_exp <- trial_cost_df %>%
+  #filter(!New_Phase == "Early Phase 1") %>%
+  mutate(TrialCost_million = TrialCost / 1e6,
+    Expedited_Group = ifelse(ExpeditedDesignations >= 1, "At Least One", "None"))
+
+# Step 1: Summarize data grouped by drugid
+trial_cost_exp_FIC <- trial_cost_exp %>%
+  filter(!is.na(First_In_Class)) %>%
+  group_by(drugid) %>%
+  summarise(Number_of_Trials= n(),
+   TrialCost = sum(TrialCost)/1e6,
+    Expedited_Group = first(Expedited_Group),
+   Phase = first(Phase),
+    First_In_Class = first(First_In_Class) # Ignore NA values
+  )
+
+# Step 2: Calculate summary statistics grouped by First_In_Class and Expedited_Group
+summary_stats_FIC_cost <- trial_cost_exp_FIC %>%
+  group_by(First_In_Class, Expedited_Group, Phase) %>%
+  summarise(
+    Totalcost = sum(TrialCost,na.rm =TRUE),
+    Avg_cost = mean(TrialCost, na.rm = TRUE),
+    Median_Cost = median(TrialCost, na.rm =TRUE),
+    Unique_Drugs = n_distinct(drugid),  # Count of unique drug IDs
+    Mean = mean(Number_of_Trials, na.rm = TRUE),
+    Median = median(Number_of_Trials, na.rm = TRUE),
+    IQR = IQR(Number_of_Trials, na.rm = TRUE),
+    Min = min(Number_of_Trials, na.rm = TRUE),
+    Max = max(Number_of_Trials, na.rm = TRUE),
+    .groups = 'drop' # Ensures no unnecessary grouping in the output
+  )
+
+#visualize the cost of the trials for FIC drugs 
+p = ggplot(trial_cost_exp_FIC, aes(x = as.factor(TACode), y = TrialCost, fill = as.factor(First_In_Class))) +
+  geom_boxplot(outlier.shape = NA, color = "black", alpha = 0.7, position = position_dodge(width = 0.75)) +  
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75), alpha = 0.6, size = 2, color = "black") +  
+  labs(
+    title = "Cost of trials",
+    x = "Expedited Group",
+    y = "Cost of trials (Millions)"
+  ) + 
+ ylim(c(0,1000))+
+  scale_fill_manual(
+    name = "Drug Type",  # Adding a title for the legend
+    values = c("0" = "#D3D3D3", "1" = "#696969"),  # Custom colors (optional)
+    labels = c("0" = "NON FIC", "1" = "FIC")  # Custom labels for legend
+  )+
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank(),  
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 26),
+    legend.position = "right",
+    panel.background = element_blank()
+  )
+
+print(p)
+
+ggsave("costofTrials-FIC_expedited.jpg", p,width =12, height = 10 , dpi =300 )
+trial_cost_exp_FIC$Expedited_Group <- factor(trial_cost_exp_FIC$Expedited_Group)
+trial_cost_exp_FIC$First_In_Class <- factor(trial_cost_exp_FIC$First_In_Class)
+trial_cost_exp_FIC$Phase <- factor(trial_cost_exp_FIC$Phase)
+trial_cost_exp_FIC$Expedited_Group <- relevel(trial_cost_exp_FIC$Expedited_Group, ref = "None")
+trial_cost_exp_FIC$First_In_Class <- relevel(trial_cost_exp_FIC$First_In_Class,
+  ref = "0"
+)
+trial_cost_exp_FIC$FPhase <- relevel(trial_cost_exp_FIC$Phase,
+  ref = "Phase 1"
+)
+model_50 <- rq(TrialCost ~ Expedited_Group + Phase, tau = 0.50, data = trial_cost_exp_FIC)
+
+model_50 <- rq(TrialCost ~  First_In_Class * Expedited_Group, tau = 0.50, data = trial_cost_exp_FIC)
+
+set.seed(1234);
+bootstrap_summary <- summary(model_50, se = "boot", R = 10000);
+default_summary <- summary(model_50)
+print(default_summary)
+print(bootstrap_summary)
+
+# Open a file connection
+sink("C:/Users/parya/ScienceandIndustry Dropbox/Payal Arya/RESEARCH DOTD Clinical Trials/Working/Payal Arya/clinical_trial_preapproval/Data_analysis/FIC_regressions_summary.txt")
+
+# Print summaries to the file
+cat("Default Summary:\n")
+print(default_summary)
+cat("\n\nBootstrapped Summary:\n")
+print(bootstrap_summary)
+
+# Close the file connection
+sink()
+
+model_data <- model.frame(model_50)
+model_data$Predicted <- predict(model_50)
+
+
+ggplot(model_data, aes(x = Predicted, y = TrialCost)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, color = "blue", linetype = "dashed") +
+  theme_minimal() +
+  labs(title = "Predicted vs Actual Trial Cost",
+       x = "Predicted Trial Cost (in Millions)",
+       y = "Actual Trial Cost (in Millions)")
+```
+
+
+```{r Patient count of NCE vs biologic}
+
+# number of patients in NCE vs Biologic
+Patient_NCE<- trial_cost_exp %>%
+  group_by(drugid, NCE_1_Biologic_0,Expedited_Group) %>%
+  summarise(Trial_Count = n_distinct(NCTId),
+            Patient_count = sum(EnrollmentCount))
+
+Patient_NCE_summary <- Patient_NCE %>%
+  group_by(Expedited_Group,NCE_1_Biologic_0) %>%
+  summarise(MeanPatients = mean(Patient_count,na.rm =TRUE),
+            MedianPatients = median(Patient_count, na.rm =TRUE),
+            Patients = sum(Patient_count, na.rm =TRUE),
+            TotalTrials = sum(Trial_Count,na.rm =TRUE),
+            MeanTrials = mean(Trial_Count, na.rm =TRUE),
+            MedianTrials = median(Trial_Count,na.rm =TRUE),
+            Uniquedrugs = n_distinct(drugid))
+p <- ggplot(Patient_NCE, aes(x = as.factor(Expedited_Group), y = Patient_count, fill = as.factor(NCE_1_Biologic_0))) +
+  geom_boxplot(outlier.shape = NA, color = "black", alpha = 0.7, position = position_dodge(width = 0.75)) +  
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75), alpha = 0.6, size = 2, color = "black") +  
+  labs(
+    title = "Number of Patients per therapeutic area, Colored by NCE vs BiologicC",
+    x = "Expedited Group",
+    y = "Number of Patients"
+  ) + ylim(c(0,10000))+
+  scale_fill_manual(
+    name = "Drug Type",  # Adding a title for the legend
+    values = c("0" = "#D3D3D3", "1" = "#696969"),  # Custom colors (optional)
+    labels = c("0" = "Biologic", "1" = "NCE")  # Custom labels for legend
+  )+
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank(),  
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 26),
+    legend.position = "right",
+    panel.background = element_blank()
+  )
+
+print(p)
+
+
+p =ggplot(Patient_NCE,
+       aes(x = as.factor(NCE_1_Biologic_0),
+           y = Patient_count,
+           fill = Expedited_Group)) +
+
+  geom_boxplot(outlier.shape = NA, color = "black",
+               alpha = 0.7,
+               position = position_dodge(0.75)) +
+
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.2,
+                                              dodge.width = 0.75),
+              alpha = 0.6, size = 2, color = "black") +
+
+  labs(
+    title = "Number of Patients by Drug Type, Colored by Expedited Group",
+    x = "Drug Type",
+    y = "Number of Patients"
+  ) +
+
+  scale_x_discrete(labels = c(`0` = "Biologic", `1` = "NCE")) +   # ← here
+
+  ylim(0, 10000) +
+
+  scale_fill_manual(values = c("None" = "#D3D3D3",
+                               "At Least One" = "#696969"),
+                    name   = "Expedited Group") +
+
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x      = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x     = element_blank(),
+    axis.title       = element_text(size = 24),
+    axis.text.y      = element_text(size = 24),
+    legend.text      = element_text(size = 26),
+    legend.position  = "right"
+  )
+
+print(p)
+
+ggsave("num_patients_NCE_biologic_expedited.jpg", p,width =12, height = 10 , dpi =300 )
+
+#num of patient regression 
+
+Patient_NCE$Expedited_Group <- factor(Patient_NCE$Expedited_Group)
+Patient_NCE$NCE_1_Biologic_0 <- factor(Patient_NCE$NCE_1_Biologic_0)
+
+Patient_NCE$Expedited_Group <- relevel(Patient_NCE$Expedited_Group, ref = "None")
+Patient_NCE$NCE_1_Biologic_0 <- relevel(Patient_NCE$NCE_1_Biologic_0,
+  ref = "0"
+)
+
+model_50 <- rq(Patient_count ~ Expedited_Group + NCE_1_Biologic_0, tau = 0.50, data = Patient_NCE)
+
+model_50 <- rq(Patient_count ~ Expedited_Group * NCE_1_Biologic_0, tau = 0.50, data = Patient_NCE)
+
+set.seed(1234);
+bootstrap_summary <- summary(model_50, se = "boot", R = 10000);
+default_summary <- summary(model_50)
+print(default_summary)
+print(bootstrap_summary)
+
+# Open a file connection
+sink("C:/Users/parya/ScienceandIndustry Dropbox/Payal Arya/RESEARCH DOTD Clinical Trials/Working/Payal Arya/clinical_trial_preapproval/Data_analysis/Patientcount_NCE_biologicregressions_summary.txt")
+
+# Print summaries to the file
+cat("Default Summary:\n")
+print(default_summary)
+cat("\n\nBootstrapped Summary:\n")
+print(bootstrap_summary)
+
+# Close the file connection
+sink()
+
+# Patient number by FIC and expedited group
+
+Patient_FIC_therapeutic<- trial_cost_exp %>%
+  filter(!is.na(First_In_Class)) %>%
+  group_by(drugid,First_In_Class,Expedited_Group) %>%
+  summarise(Trial_Count = n_distinct(NCTId),
+            Total_patients = sum(EnrollmentCount))
+
+Patient_FIC_therapeutic_summary <- Patient_FIC_therapeutic %>%
+  group_by(First_In_Class,Expedited_Group) %>%
+  summarise(MeanPatients = mean(Total_patients,na.rm =TRUE),
+            MedianPatients = median(Total_patients, na.rm =TRUE),
+            Patients = sum(Total_patients, na.rm =TRUE),
+            TotalTrials = sum(Trial_Count,na.rm =TRUE),
+            MeanTrials = mean(Trial_Count, na.rm =TRUE),
+            MedianTrials = median(Trial_Count,na.rm =TRUE),
+            Uniquedrugs = n_distinct(drugid))
+
+
+#visualize the patient number by  
+
+p <- ggplot(Patient_FIC_therapeutic, aes(x = as.factor(Expedited_Group), y = Total_patients, fill = as.factor(First_In_Class))) +
+  geom_boxplot(outlier.shape = NA, color = "black", alpha = 0.7, position = position_dodge(width = 0.75)) +  
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75), alpha = 0.6, size = 2, color = "black") +  
+  labs(
+    title = "Number of Patients per therapeutic area, Colored by FIC vs NON FIC",
+    x = "Expedited Group",
+    y = "Number of Patients"
+  ) + ylim(c(0,10000))+
+  scale_fill_manual(
+    name = "Drug Type",  # Adding a title for the legend
+    values = c("0" = "#D3D3D3", "1" = "#696969"),  # Custom colors (optional)
+    labels = c("0" = "NON FIC", "1" = "FIC")  # Custom labels for legend
+  )+
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank(),  
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 26),
+    legend.position = "right",
+    panel.background = element_blank()
+  )
+
+print(p)
+
+ggsave("num_patients_FIC_biologic_expedited.jpg", p,width =12, height = 10 , dpi =300 )
+
+# Step 1: Summarize data grouped by drugid
+trial_cost_exp_NCE <- trial_cost_exp %>%
+  filter(!is.na(NCE_1_Biologic_0)) %>%
+  group_by(drugid) %>%
+  summarise(Number_of_Trials= n(),
+   TrialCost = sum(TrialCost)/1e6,
+    Expedited_Group = first(Expedited_Group),
+    NCE_1_Biologic_0 = first(NCE_1_Biologic_0) # Ignore NA values
+  )
+
+# Step 2: Calculate summary statistics grouped by First_In_Class and Expedited_Group
+summary_stats_NCE_cost <- trial_cost_exp_NCE %>%
+  group_by(NCE_1_Biologic_0, Expedited_Group) %>%
+  summarise(
+    Totalcost = sum(TrialCost,na.rm =TRUE),
+    Avg_cost = mean(TrialCost, na.rm = TRUE),
+    Median_Cost = median(TrialCost, na.rm =TRUE),
+    Unique_Drugs = n_distinct(drugid),  # Count of unique drug IDs
+    Mean = mean(Number_of_Trials, na.rm = TRUE),
+    Median = median(Number_of_Trials, na.rm = TRUE),
+    IQR = IQR(Number_of_Trials, na.rm = TRUE),
+    Min = min(Number_of_Trials, na.rm = TRUE),
+    Max = max(Number_of_Trials, na.rm = TRUE),
+    .groups = 'drop' # Ensures no unnecessary grouping in the output
+  )
+
+#visualise the cost of trials for nce vs biologic
+
+p <- ggplot(trial_cost_exp_NCE, aes(x = as.factor(Expedited_Group), y = TrialCost, fill = as.factor(NCE_1_Biologic_0))) +
+  geom_boxplot(outlier.shape = NA, color = "black", alpha = 0.7, position = position_dodge(width = 0.75)) +  
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75), alpha = 0.6, size = 2, color = "black") +  
+  labs(
+    title = "Number of Patients per Phase, Colored by Expedited Pathway Group",
+    x = "Expedited Group",
+    y = "Cost of trials (Millions)"
+  ) + 
+  ylim(c(0,1000))+
+  scale_fill_manual(
+    name = "Drug Type",  # Adding a title for the legend
+    values = c("0" = "#D3D3D3", "1" = "#696969"),  # Custom colors (optional)
+    labels = c("0" = "Biologic", "1" = "NCE")  # Custom labels for legend
+  )+
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank(),  
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 26),
+    legend.position = "right",
+    panel.background = element_blank()
+  )
+
+print(p)
+
+ggsave("Costoftrials_nce_biologic_expedited.jpg", p,width =12, height = 10 , dpi =300 )
+
+
+trial_cost_exp_NCE$Expedited_Group <- factor(trial_cost_exp_NCE$Expedited_Group)
+trial_cost_exp_NCE$NCE_1_Biologic_0 <- factor(trial_cost_exp_NCE$NCE_1_Biologic_0)
+
+trial_cost_exp_NCE$Expedited_Group <- relevel(trial_cost_exp_NCE$Expedited_Group, ref = "None")
+trial_cost_exp_NCE$NCE_1_Biologic_0 <- relevel(trial_cost_exp_NCE$NCE_1_Biologic_0,
+  ref = "0"
+)
+
+model_50 <- rq(TrialCost ~ Expedited_Group + NCE_1_Biologic_0, tau = 0.50, data = trial_cost_exp_NCE)
+
+model_50 <- rq(TrialCost ~  NCE_1_Biologic_0 * Expedited_Group, tau = 0.50, data = trial_cost_exp_NCE)
+
+set.seed(1234);
+bootstrap_summary <- summary(model_50, se = "boot", R = 10000);
+default_summary <- summary(model_50)
+print(default_summary)
+print(bootstrap_summary)
+
+# Open a file connection
+sink("C:/Users/parya/ScienceandIndustry Dropbox/Payal Arya/RESEARCH DOTD Clinical Trials/Working/Payal Arya/clinical_trial_preapproval/Data_analysis/FIC_regressions_summary.txt")
+
+# Print summaries to the file
+cat("Default Summary:\n")
+print(default_summary)
+cat("\n\nBootstrapped Summary:\n")
+print(bootstrap_summary)
+
+# Close the file connection
+sink()
+
+```
+
+```{r Trial counts by expedited group}
+TrialsStartedandFinishedbeforeapproval_exp <- TrialsStartedandFinishedbeforeapproval %>%
+  filter(!New_Phase == "Early Phase 1") %>%
+  mutate(Expedited_Group = ifelse(ExpeditedDesignations >= 1, "At Least One", "None"))
+
+trial_counts <- TrialsStartedandFinishedbeforeapproval_exp %>%
+  group_by(drugid, Expedited_Group) %>%
+  summarise(Trial_Count = n_distinct(NCTId))
+
+summary_stats <- trial_counts %>%
+  group_by(Expedited_Group) %>%
+  summarise(
+    Total_trials = sum(Trial_Count),
+    Unique_drugs = n_distinct(drugid),
+    Mean = mean(Trial_Count, na.rm = TRUE),
+    Median = median(Trial_Count, na.rm = TRUE),
+    Q1 = quantile(Trial_Count, 0.25, na.rm = TRUE),  # 25th percentile
+    Q3 = quantile(Trial_Count, 0.75, na.rm = TRUE),  # 75th percentile
+    IQR = Q3 - Q1,  # Explicit IQR calculation
+    SD = sd(Trial_Count, na.rm = TRUE),
+    Count = n()
+  )
+print("Summary Statistics:")
+print(summary_stats)
+
+trial_counts_Phase <- TrialsStartedandFinishedbeforeapproval_exp %>%
+  group_by(drugid, Expedited_Group,New_Phase) %>%
+  summarise(Trial_Count = n_distinct(NCTId))
+
+summary_stats_Phase <- trial_counts_Phase %>%
+  group_by(Expedited_Group,New_Phase) %>%
+  summarise(
+    Total_trials = sum(Trial_Count),
+    Unique_drugs = n_distinct(drugid),
+    Mean = mean(Trial_Count, na.rm = TRUE),
+    Median = median(Trial_Count, na.rm = TRUE),
+    Q1 = quantile(Trial_Count, 0.25, na.rm = TRUE),  # 25th percentile
+    Q3 = quantile(Trial_Count, 0.75, na.rm = TRUE),  # 75th percentile
+    IQR = Q3 - Q1,  # Explicit IQR calculation
+    SD = sd(Trial_Count, na.rm = TRUE),
+    Count = n()
+  )
+at_least_one <- trial_counts$Trial_Count[trial_counts$Expedited_Group == "At Least One"]
+none <- trial_counts$Trial_Count[trial_counts$Expedited_Group == "None"]
+# Check normality with Shapiro-Wilk test
+shapiro_at_least_one <- shapiro.test(at_least_one)
+shapiro_none <- shapiro.test(none)
+
+print("Normality Test Results:")
+print(shapiro_at_least_one)
+print(shapiro_none)
+
+# Perform appropriate test based on normality results
+if (shapiro_at_least_one$p.value > 0.05 & shapiro_none$p.value > 0.05) {
+  t_test <- t.test(at_least_one, none, var.equal = TRUE)
+  print("T-Test Results:")
+  print(t_test)
+} else {
+  wilcox_test <- wilcox.test(at_least_one, none)
+  print("Wilcoxon Test Results:")
+  print(wilcox_test)
+}
+trial_counts$Expedited_Group <- factor(trial_counts$Expedited_Group, levels = c("None", "At Least One"))
+
+p =ggplot(trial_counts, aes(x = Expedited_Group, y = Trial_Count)) +
+  geom_boxplot(outlier.shape = NA, fill = "white", color = "black", alpha = 0.7) +  # Black-and-white boxplot
+  geom_jitter(width = 0.2, alpha = 0.6, color = "black") +                         # Jittered points in black
+  labs(
+    title = "Number of Trials per Drug ID by Expedited Pathway Group",
+    x = "Expedited Pathway Group",
+    y = "Number of Trials"
+  ) + 
+  theme_minimal() +  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 26),
+    legend.position = "right",
+    panel.background = element_blank()  # Remove background panel
+  )+
+  theme(legend.position = "none")  # Hide legend since groups are on the x-axis
+
+  print(p)
+  ggsave("TrialCounts_expedited_pathways.jpg", p , dpi =300, width =10, height =8)
+  getwd()
+```
+
+
+```{r summarise the number of patients for expedited group vs none}
+TrialsStartedandFinishedbeforeapproval_exp_patient<- TrialsStartedandFinishedbeforeapproval_patient %>%
+  mutate(Expedited_Group = ifelse(ExpeditedDesignations >= 1, "At Least One", "None"))
+
+
+Patient_counts_expedited <- TrialsStartedandFinishedbeforeapproval_exp_patient %>%
+  group_by(drugid, Expedited_Group) %>%
+  summarise(Trial_Count = n_distinct(NCTId),
+            Total_patients = sum(EnrollmentCount))
+
+Patient_sumamry_expedited <- Patient_counts_expedited %>%
+  group_by(Expedited_Group) %>%
+  summarise(MeanPatients = mean(Total_patients,na.rm =TRUE),
+            MedianPatients = median(Total_patients, na.rm =TRUE),
+            Patients = sum(Total_patients, na.rm =TRUE),
+            TotalTrials = sum(Trial_Count,na.rm =TRUE),
+            MeanTrials = mean(Trial_Count, na.rm =TRUE),
+            MedianTrials = median(Trial_Count,na.rm =TRUE))
+
+at_least_one <- Patient_counts_expedited$Total_patients[Patient_counts_expedited$Expedited_Group == "At Least One"]
+none <- Patient_counts_expedited$Total_patients[Patient_counts_expedited$Expedited_Group == "None"]
+# Check normality with Shapiro-Wilk test
+shapiro_at_least_one <- shapiro.test(at_least_one)
+shapiro_none <- shapiro.test(none)
+
+print("Normality Test Results:")
+print(shapiro_at_least_one)
+print(shapiro_none)
+
+# Perform appropriate test based on normality results
+if (shapiro_at_least_one$p.value > 0.05 & shapiro_none$p.value > 0.05) {
+  t_test <- t.test(at_least_one, none, var.equal = TRUE)
+  print("T-Test Results:")
+  print(t_test)
+} else {
+  wilcox_test <- wilcox.test(at_least_one, none)
+  print("Wilcoxon Test Results:")
+  print(wilcox_test)
+}
+
+p =ggplot(Patient_counts_expedited, aes(x = Expedited_Group, y = Total_patients)) +
+  geom_boxplot(outlier.shape = NA, fill = "white", color = "black", alpha = 0.7) +  # Black-and-white boxplot
+  geom_jitter(width = 0.2, alpha = 0.6, color = "black") +                         # Jittered points in black
+  labs(
+    title = "Number of patients per Drug ID by Expedited Pathway Group",
+    x = "Expedited Pathway Group",
+    y = "Number of patients"
+  ) + ylim(c(0,5000))+
+  theme_minimal() +  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 26),
+    legend.position = "right",
+    panel.background = element_blank()  # Remove background panel
+  )+
+  theme(legend.position = "none")  # Hide legend since groups are on the x-axis
+
+  print(p)
+  
+  ggsave("Patient_count_expedited.jpg", p, width =12, height =10, dpi =300)
+  
+  Patient_counts_expedited_Phase <- TrialsStartedandFinishedbeforeapproval_exp_patient %>%
+  group_by(drugid, Expedited_Group,New_Phase) %>%
+  summarise(Trial_Count = n_distinct(NCTId),
+            Total_patients = sum(EnrollmentCount))
+  
+p <- ggplot(Patient_counts_expedited_Phase, aes(x = as.factor(New_Phase), y = Total_patients, fill = as.factor(Expedited_Group))) +
+  geom_boxplot(outlier.shape = NA, color = "black", alpha = 0.7, position = position_dodge(width = 0.75)) +  
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75), alpha = 0.6, size = 2, color = "black") +  
+  labs(
+    title = "Number of Patients per Phase, Colored by Expedited Pathway Group",
+    x = "Clinical Trial Phase",
+    y = "Number of Patients"
+  ) + ylim(c(0,20000))+
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank(),  
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 26),
+    legend.position = "right",
+    panel.background = element_blank()
+  )
+
+print(p)
+
+Patient_counts_expedited_NCE <- TrialsStartedandFinishedbeforeapproval_exp_patient %>%
+  group_by(drugid, Expedited_Group, NCE_1_Biologic_0) %>%
+  summarise(
+    Trial_Count = n_distinct(NCTId),
+    Total_patients = sum(EnrollmentCount, na.rm = TRUE)
+  )
+Patient_counts_summary <- Patient_counts_expedited_NCE %>%
+  group_by(Expedited_Group, NCE_1_Biologic_0) %>%
+  summarise(
+    Mean_patients = mean(Total_patients, na.rm = TRUE),  
+    Median_patients = median(Total_patients, na.rm = TRUE), 
+    Mean_trials = mean(Trial_Count),  
+    Median_trials = median(Trial_Count)
+  )
+p <- ggplot(Patient_counts_expedited_NCE, aes(x = as.factor(Expedited_Group), y = Total_patients, fill = as.factor(NCE_1_Biologic_0))) +
+  geom_boxplot(outlier.shape = NA, color = "black", alpha = 0.7, position = position_dodge(width = 0.75)) +  
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75), alpha = 0.6, size = 2, color = "black") +  
+  labs(
+    title = "Number of Patients per Phase, Colored by Expedited Pathway Group",
+    x = "Clinical Trial Phase",
+    y = "Number of Patients"
+  ) + ylim(c(0,20000))+
+  scale_fill_manual(
+    name = "Drug Type",  # Adding a title for the legend
+    values = c("0" = "#D3D3D3", "1" = "#696969"),  # Custom colors (optional)
+    labels = c("0" = "Biologic", "1" = "NCE")  # Custom labels for legend
+  )+
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank(),  
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 26),
+    legend.position = "right",
+    panel.background = element_blank()
+  )
+
+print(p)
+
+ggsave("num_patients_nce_biologic_expedited.jpg", p,width =12, height = 10 , dpi =300 )
+```
+
+```{r summarise patients by FDA therapeutic area}
+
+Patient_counts_expedited <- trial_cost_exp %>%
+  group_by(drugid, Expedited_Group, TACode) %>%
+  summarise(Trial_Count = n_distinct(NCTId),
+            Patient_Count = sum(EnrollmentCount))
+
+Patient_summary_expedited_TA <- Patient_counts_expedited %>%
+  group_by(TACode,Expedited_Group) %>%
+  summarise(MeanPatients = mean(Patient_Count,na.rm =TRUE),
+            MedianPatients = median(Patient_Count, na.rm =TRUE),
+            Patients = sum(Patient_Count, na.rm =TRUE),
+            TotalTrials = sum(Trial_Count,na.rm =TRUE),
+            MeanTrials = mean(Trial_Count, na.rm =TRUE),
+            MedianTrials = median(Trial_Count,na.rm =TRUE))
+write.csv(Patient_summary_expedited_TA, 
+          "C:/Users/parya/ScienceandIndustry Dropbox/Payal Arya/RESEARCH DOTD Clinical Trials/Working/Payal Arya/clinical_trial_preapproval/CSVfiles/Patient_summary_expedited_TA.csv", 
+          row.names = FALSE)
+p <- ggplot(Patient_counts_expedited, aes(x = as.factor(TACode), y = Patient_Count, fill = as.factor(Expedited_Group))) +
+  geom_boxplot(outlier.shape = NA, color = "black", alpha = 0.7, position = position_dodge(width = 0.75)) +  
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75), alpha = 0.6, size = 2, color = "black") +  
+  labs(
+    title = "Number of Patients, Colored by Expedited Pathway Group",
+    x = "Therapeutic area",
+    y = "Number of Patients"
+  ) + ylim(c(0,5000))+
+ scale_fill_manual(
+    values = c( "#D3D3D3", "#696969")
+  )+
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank(),  
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 26),
+    legend.position = "right",
+    panel.background = element_blank()
+  )
+
+print(p)
+
+ggsave("Patients_TA_expedited.jpg", p, width =20,height =12, dpi =300)
+```
+
+```{r Trial counts for expedited group}
+
+
+p <- ggplot(Patient_counts_expedited, aes(x = as.factor(TACode), y = Patient_Count, fill = as.factor(Expedited_Group))) +
+  geom_boxplot(outlier.shape = NA, color = "black", alpha = 0.7, position = position_dodge(width = 0.75)) +  
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75), alpha = 0.6, size = 2, color = "black") +  
+  labs(
+    title = "Number of Patients, Colored by Expedited Pathway Group",
+    x = "Therapeutic area",
+    y = "Number of Patients"
+  ) + ylim(c(0,5000))+
+ scale_fill_manual(
+    values = c( "#D3D3D3", "#696969")
+  )+
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank(),  
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 26),
+    legend.position = "right",
+    panel.background = element_blank()
+  )
+
+print(p)
+
+ggsave("Patients_TA_expedited.jpg", p, width =20,height =12, dpi =300)
+```
+
+
+```{r Regression for number of patients and therapeutic class}
+
+
+Patient_counts_expedited$Expedited_Group <- factor(Patient_counts_expedited$Expedited_Group)
+Patient_counts_expedited$TACode <- factor(Patient_counts_expedited$TACode)
+
+Patient_counts_expedited$Expedited_Group <- relevel(Patient_counts_expedited$Expedited_Group, ref = "None")
+Patient_counts_expedited$TACode <- relevel(Patient_counts_expedited$TACode,
+  ref = "AINFCTV"
+)
+
+model_50 <- rq(Patient_Count ~ Expedited_Group + TACode, tau = 0.50, data = Patient_counts_expedited)
+
+
+
+set.seed(1234);
+bootstrap_summary <- summary(model_50, se = "boot", R = 10000);
+default_summary <- summary(model_50)
+print(default_summary)
+print(bootstrap_summary)
+
+# Open a file connection
+sink("C:/Users/parya/ScienceandIndustry Dropbox/Payal Arya/RESEARCH DOTD Clinical Trials/Working/Payal Arya/clinical_trial_preapproval/Data_analysis/Patientcount_regressions_summary.txt")
+
+# Print summaries to the file
+cat("Default Summary:\n")
+print(default_summary)
+cat("\n\nBootstrapped Summary:\n")
+print(bootstrap_summary)
+
+# Close the file connection
+sink()
+
+#remove categories which donot have more than 3 drus in one of the levels
+# Step 1: Count number of unique drugs by TACode and Expedited_Group
+tacode_counts <- trial_cost_exp %>%
+  group_by(TACode, Expedited_Group) %>%
+  summarise(Drug_Count = n_distinct(drugid), .groups = "drop")
+
+# Step 2: Keep only TACodes that have >=3 drugs in BOTH categories
+valid_tacodes <- tacode_counts %>%
+  filter(Drug_Count >= 3) %>%
+  group_by(TACode) %>%
+  summarise(Group_Count = n()) %>%
+  filter(Group_Count == 2) %>%
+  pull(TACode)
+
+# Step 3: Filter the original data to keep only valid TACodes
+Patient_counts_expedited_updated <- trial_cost_exp %>%
+  filter(TACode %in% valid_tacodes) %>%
+  group_by(drugid, Expedited_Group, TACode) %>%
+  summarise(Trial_Count = n_distinct(NCTId),
+            Patient_Count = sum(EnrollmentCount),
+            .groups = "drop")
+Patient_counts_expedited_updated$Expedited_Group <- factor(Patient_counts_expedited_updated$Expedited_Group)
+Patient_counts_expedited_updated$TACode <- factor(Patient_counts_expedited_updated$TACode)
+
+Patient_counts_expedited_updated$Expedited_Group <- relevel(Patient_counts_expedited_updated$Expedited_Group, ref = "None")
+Patient_counts_expedited_updated$TACode <- relevel(Patient_counts_expedited_updated$TACode,
+  ref = "AINFCTV"
+)
+model_50 <- rq(Patient_Count ~  Expedited_Group * TACode, tau = 0.50, data = Patient_counts_expedited_updated)
+set.seed(1234);
+bootstrap_summary <- summary(model_50, se = "boot", R = 10000);
+default_summary <- summary(model_50)
+print(default_summary)
+print(bootstrap_summary)
+
+# Open a file connection
+sink("C:/Users/parya/ScienceandIndustry Dropbox/Payal Arya/RESEARCH DOTD Clinical Trials/Working/Payal Arya/clinical_trial_preapproval/Data_analysis/Patientcount_interactionregressions_summary.txt")
+
+# Print summaries to the file
+cat("Default Summary:\n")
+print(default_summary)
+cat("\n\nBootstrapped Summary:\n")
+print(bootstrap_summary)
+
+# Close the file connection
+sink()
+```
+
+```{r Cost of trials by TACodes}
+Trialcosts_expedited <- trial_cost_exp %>%
+  group_by(drugid, Expedited_Group, TACode) %>%
+  summarise(trialcost = sum(TrialCost,na.rm =TRUE)/1e6,
+            Trial_Count = n(),
+            PatientCount = sum(EnrollmentCount),
+            .groups = 'drop')
+
+Trialcosts_summary_expedited_TA <- Trialcosts_expedited %>%
+  group_by(TACode,Expedited_Group) %>%
+  summarise(TotalCostMillion = sum(trialcost,na.rm =TRUE),
+            Avg_costMillion = mean(trialcost,na.rm = TRUE),
+            Median_costMillion = median(trialcost,na.rm =TRUE),
+               uniquedrug= n_distinct(drugid))
+
+
+
+# Save Trialcosts_summary_expedited_TA to a CSV
+write.csv(Trialcosts_summary_expedited_TA, 
+          "C:/Users/parya/ScienceandIndustry Dropbox/Payal Arya/RESEARCH DOTD Clinical Trials/Working/Payal Arya/clinical_trial_preapproval/CSVfiles/Trialcosts_summary_expedited_TA.csv", 
+          row.names = FALSE)
+
+p <- ggplot(Trialcosts_expedited, aes(x = as.factor(TACode), y = trialcost, fill = as.factor(Expedited_Group))) +
+  geom_boxplot(outlier.shape = NA, color = "black", alpha = 0.7, position = position_dodge(width = 0.75)) +  
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75), alpha = 0.6, size = 2, color = "black") +  
+  labs(
+    title = "Cost of trials, Colored by Expedited Pathway Group",
+    x = "Therapeutic area",
+    y = "Cost of trials (M)"
+  ) + 
+  ylim(c(0,500))+
+ scale_fill_manual(
+    values = c( "#D3D3D3", "#696969")
+  )+
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank(),  
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 26),
+    legend.position = "right",
+    panel.background = element_blank()
+  )
+
+print(p)
+
+ggsave("Trialcost_TA_expedited.jpg", p, width =20,height =12, dpi =300)
+```
+
+
+```{r summarise patient counts by NCE vs Biologic}
+
+
+trial_cost_NCEBiologic <- trial_cost_exp %>%
+  group_by(drugid,NCE_1_Biologic_0,Expedited_Group) %>%
+  summarise(PatientCount = sum(EnrollmentCount),
+            Trial_Count = n(),
+            trialcost = sum(TrialCost,na.rm =TRUE)/1e6,
+            .groups = 'drop')
+
+trial_cost_NCEBiologic_summary <- trial_cost_NCEBiologic %>%
+  group_by(NCE_1_Biologic_0, Expedited_Group) %>%
+  summarise(TotalCostMillion = sum(trialcost,na.rm =TRUE),
+            Avg_costMillion = mean(trialcost,na.rm = TRUE),
+            Median_costMillion = median(trialcost,na.rm =TRUE),
+            Total_patients = sum(PatientCount,na.rm =TRUE),
+            MeanPatients = mean(PatientCount,na.rm =TRUE),
+            MedianPatients = median(PatientCount,na.rm =TRUE),
+            Totaltrials =sum(Trial_Count),
+            Meantrials =mean(Trial_Count,na.rm =TRUE),
+            Mediantrials = median(Trial_Count,na.rm =TRUE))
+
+Cost_NCE_biologic <- ggplot(trial_cost_NCEBiologic, 
+            aes(x = as.factor(Expedited_Group), 
+                y = trialcost, 
+                fill = as.factor(NCE_1_Biologic_0))) +
+  geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Grouped boxplots
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75), 
+              size = 2, alpha = 0.7, color = "black") +  # Jitter points to show distribution
+ylim(c(0, 500))+
+  labs(
+    title = "Cost of trials by Expedited Group",
+    x = "Expedited Group",
+    y = "Cost of trials in Millions",
+    fill = "Expedited Pathway"  # Legend title
+  ) +
+  scale_fill_manual(
+    name = "Drug Type",  # Adding a title for the legend
+    values = c("0" = "#D3D3D3", "1" = "#696969"),  # Custom colors (optional)
+    labels = c("0" = "Biologic", "1" = "NCE")  # Custom labels for legend
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 65, hjust = 1, size = 26),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 28),
+    axis.text.y = element_text(size = 28),
+    legend.title = element_text(size = 26),  # Adjust legend title size
+    legend.text = element_text(size = 26),  # Adjust legend text size
+    legend.position = "right",
+    panel.background = element_blank()  # Remove background panel
+  )
+Cost_NCE_biologic
+
+
+
+```
+
+
+
+
+```{r Number of trials for NCE vs biologic}
+NCE_biologic_trial_counts <- TrialsStartedandFinishedbeforeapproval %>%
+  group_by(drugid,NCE_1_Biologic_0) %>%
+  summarise(trials_perdrug = n(),
+            .groups = 'drop')
+print(NCE_biologic_trial_counts)
+# Calculating summary statistics for each combination of New_Phase and WHOIndication
+summary_stats_NCE_biologic <- NCE_biologic_trial_counts %>%
+  group_by(NCE_1_Biologic_0) %>%
+  summarise(
+    total_trials = sum(trials_perdrug),
+    Unique_Drugs = n_distinct(drugid),  # Count of unique drug IDs
+    Mean = mean(trials_perdrug, na.rm = TRUE),
+    Median = median(trials_perdrug, na.rm = TRUE),
+    IQR = IQR(trials_perdrug, na.rm = TRUE),
+    Min = min(trials_perdrug, na.rm = TRUE),
+    Max = max(trials_perdrug, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+res <- wilcox.test(NCE_biologic_trial_counts$trials_perdrug ~ NCE_biologic_trial_counts$NCE_1_Biologic_0, exact = FALSE)
+res 
+
+p <- ggplot(NCE_biologic_trial_counts, aes(x = NCE_1_Biologic_0, y = trials_perdrug)) +
+  geom_boxplot(alpha = 0.7, outlier.shape =NA) +
+  geom_jitter(width = 0.2, alpha = 0.5, color = "black") +  # Add jittered points
+  scale_x_discrete(labels = c("0" = "Biologic", "1" = "NCE")) +
+  theme_minimal() + ylim(c(0,40))+
+  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_blank(),
+    legend.text = element_text(size = 26),
+    legend.position = "right",
+    panel.background = element_blank()  # Remove background panel
+  ) +
+  labs(x = NULL, y = "NCTIds per drug")
+print(p)
+
+ggsave("NCE_biologic_trialcounts.jpg",p, dpi =300, width =10,height =8)
+
+```
+
+```{r Quantile regression for NCE vs Biologic and EXpedited group}
+TrialsStartedandFinishedbeforeapproval_exp <- TrialsStartedandFinishedbeforeapproval %>%
+  filter(!New_Phase == "Early Phase 1") %>%
+  mutate(Expedited_Group = ifelse(ExpeditedDesignations >= 1, "At Least One", "None"))
+
+# Ensure columns are treated as categorical
+TrialsStartedandFinishedbeforeapproval_exp$NCE_1_Biologic_0 <- as.factor(TrialsStartedandFinishedbeforeapproval_exp$NCE_1_Biologic_0)
+TrialsStartedandFinishedbeforeapproval_exp$Expedited_Group <- as.factor(TrialsStartedandFinishedbeforeapproval_exp$Expedited_Group)
+
+
+
+# Count the total drugs and biologics by Expedited_Group
+proportion_table <- TrialsStartedandFinishedbeforeapproval_exp %>%
+  group_by(Expedited_Group, NCE_1_Biologic_0) %>%
+  summarise(Count = n_distinct(drugid), .groups = "drop") %>%
+  mutate(Proportion = Count / sum(Count))  # Calculate proportions within each Expedited_Group
+
+# View the proportion table
+print(proportion_table)
+library(ggplot2)
+
+# Plot the proportions
+ggplot(proportion_table, aes(x = Expedited_Group, y = Proportion, fill = as.factor(NCE_1_Biologic_0))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Proportion of Drugs (NCE) and Biologics by Expedited Group",
+       x = "Expedited Group",
+       y = "Proportion",
+       fill = "Drug Type (NCE=1, Biologic=0)") +
+  theme_minimal()
+
+
+TrialsStartedandFinishedbeforeapproval_exp_summary <- TrialsStartedandFinishedbeforeapproval_exp %>%
+  group_by(drugid, NCE_1_Biologic_0,Expedited_Group) %>%
+  summarise(
+    Number_of_Trials = n(), .groups ='drop'
+  )
+
+summary_stats_TrialsStartedandFinishedbeforeapproval_exp_summary <- TrialsStartedandFinishedbeforeapproval_exp_summary %>%
+  group_by(NCE_1_Biologic_0, Expedited_Group) %>%
+  summarise(
+    total_trials = sum(Number_of_Trials),
+    Unique_Drugs = n_distinct(drugid),  # Count of unique drug IDs
+    Mean = mean(Number_of_Trials, na.rm = TRUE),
+    Median = median(Number_of_Trials, na.rm = TRUE),
+    IQR = IQR(Number_of_Trials, na.rm = TRUE),
+    Min = min(Number_of_Trials, na.rm = TRUE),
+    Max = max(Number_of_Trials, na.rm = TRUE),
+    .groups = 'drop'
+  )
+TrialsStartedandFinishedbeforeapproval_exp_summary$NCE_1_Biologic_0 <- relevel(
+  TrialsStartedandFinishedbeforeapproval_exp_summary$NCE_1_Biologic_0,
+  ref = "0" # Assuming "0" represents Biologic
+)
+
+# Set "None" as the reference group for Expedited_Group
+TrialsStartedandFinishedbeforeapproval_exp_summary$Expedited_Group <- relevel(
+  TrialsStartedandFinishedbeforeapproval_exp_summary$Expedited_Group,
+  ref = "None"
+)
+
+
+# Perform quantile regression at the 25th, 50th (median), and 75th percentiles
+model_25 <- rq(Number_of_Trials ~ NCE_1_Biologic_0 + Expedited_Group + NCE_1_Biologic_0 * Expedited_Group, tau = 0.25, data = TrialsStartedandFinishedbeforeapproval_exp_summary)
+model_50 <- rq(Number_of_Trials ~  NCE_1_Biologic_0 * Expedited_Group, tau = 0.50, data = TrialsStartedandFinishedbeforeapproval_exp_summary)
+model_75 <- rq(Number_of_Trials ~ NCE_1_Biologic_0 + Expedited_Group +NCE_1_Biologic_0 * Expedited_Group, tau = 0.75, data = TrialsStartedandFinishedbeforeapproval_exp_summary)
+
+# Summarize results
+
+set.seed(1234);
+default_summary <- summary(model_50)
+bootstrap_summary <- summary(model_50, se = "boot", R = 10000)
+print(default_summary$coefficients)
+print(bootstrap_summary$coefficients)
+# Open a file connection
+sink("C:/Users/parya/ScienceandIndustry Dropbox/Payal Arya/RESEARCH DOTD Clinical Trials/Working/Payal Arya/clinical_trial_preapproval/Data_analysis/regressions_sumamry.txt")
+
+# Print summaries to the file
+cat("Default Summary:\n")
+print(default_summary)
+cat("\n\nBootstrapped Summary:\n")
+print(bootstrap_summary)
+
+# Close the file connection
+sink()
+
+
+
+# Prepare data for plotting coefficients
+coefficients <- data.frame(
+  Term = rownames(bootstrap_summary$coefficients),
+  Estimate = bootstrap_summary$coefficients[, "Value"],
+  StdError = bootstrap_summary$coefficients[, "Std. Error"]
+)
+
+coefficients$LowerCI <- coefficients$Estimate - 1.96 * coefficients$StdError
+coefficients$UpperCI <- coefficients$Estimate + 1.96 * coefficients$StdError
+
+# Create coefficient plot
+coefficient_plot<- ggplot(coefficients, aes(x = Term, y = Estimate)) +
+  geom_point(size = 4) +
+  geom_errorbar(aes(ymin = LowerCI, ymax = UpperCI), width = 0.2) +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Regression Coefficients with 95% CI",
+       x = "Predictor Variables", y = "Estimated Coefficient")
+ggsave("Coefficient_plot.jpg",coefficient_plot,width=8,height =6, dpi=300)
+
+
+# Generate predicted values
+predictions <- predict(model_50, newdata = TrialsStartedandFinishedbeforeapproval_exp_summary)
+
+# Create observed vs. predicted plot
+ggplot(TrialsStartedandFinishedbeforeapproval_exp_summary, aes(x = predictions, y =Number_of_Trials )) +
+  geom_point(alpha = 0.6) +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  theme_minimal() +
+  labs(title = "Observed vs. Predicted Values",
+       x ="Predicted Number of Trials" , y = "Observed Number of Trials" )
+
+
+# Capture the summary as text
+regression_text <- capture.output(summary(model_50, se = "boot", R = 10000))
+
+# Create a grid table with the text
+grid_table <- grid.text(paste(regression_text, collapse = "\n"),
+                        x = 0.05, y = 0.95, just = c("left", "top"))
+
+# Save the image
+png("regression_summary_image.png", width = 1200, height = 800)
+grid.draw(grid_table)
+dev.off()
+
+cat("Image saved as regression_summary_image.png in the working directory.\n")
+
+
+
+summary(model_75)
+
+fitted_values <- fitted(model_50)  # Replace with your model
+observed_values <- TrialsStartedandFinishedbeforeapproval_exp_summary$Number_of_Trials  # Replace with actual dependent variable
+
+# Ensure lengths match
+length(fitted_values)
+length(observed_values)
+
+ #Scatter plot of observed vs. fitted values
+plot(fitted_values, observed_values,
+     xlab = "Fitted Values",
+     ylab = "Observed Values",
+     main = "Quantile Regression (Tau = 0.5)")
+abline(a = 0, b = 1, col = "red")  # Add a 45-degree line for reference
+# Optional: Explore the impact across multiple quantiles
+taus <- seq(0.1, 0.9, by = 0.1)
+model_all <- rq(Number_of_Trials ~ NCE_1_Biologic_0 + Expedited_Group, tau = taus, data = TrialsStartedandFinishedbeforeapproval_exp_summary)
+summary(model_all)
+taus <- seq(0.1, 0.9, by = 0.1)
+model_all <- rq(Number_of_Trials ~ NCE_1_Biologic_0 + Expedited_Group, tau = taus, data = TrialsStartedandFinishedbeforeapproval_exp_summary)
+
+coef_matrix <- summary(model_all)$coefficients
+
+# Example: Plotting coefficients for NCE_1_Biologic_01 across quantiles
+plot(taus, coef_matrix["NCE_1_Biologic_01", ], type = "b",
+     xlab = "Quantile (Tau)",
+     ylab = "Coefficient",
+     main = "Quantile Regression Coefficients for NCE_1_Biologic_01")
+NCE_biologic_trial_counts <- TrialsStartedandFinishedbeforeapproval_exp %>%
+  group_by(drugid,NCE_1_Biologic_0,Expedited_Group) %>%
+  summarise(trials_perdrug = n(),
+            .groups = 'drop')
+print(NCE_biologic_trial_counts)
+# Calculating summary statistics for each combination of New_Phase and WHOIndication
+summary_stats_NCE_biologic <- NCE_biologic_trial_counts %>%
+  group_by(NCE_1_Biologic_0,Expedited_Group) %>%
+  summarise(
+    total_trials = sum(trials_perdrug),
+    Unique_Drugs = n_distinct(drugid),  # Count of unique drug IDs
+    Mean = mean(trials_perdrug, na.rm = TRUE),
+    Median = median(trials_perdrug, na.rm = TRUE),
+    IQR = IQR(trials_perdrug, na.rm = TRUE),
+    Min = min(trials_perdrug, na.rm = TRUE),
+    Max = max(trials_perdrug, na.rm = TRUE),
+    .groups = 'drop'
+  )
+p <- ggplot(TrialsStartedandFinishedbeforeapproval_exp_summary, 
+            aes(x = as.factor(Expedited_Group), 
+                y = Number_of_Trials, 
+                fill = as.factor(NCE_1_Biologic_0))) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA, position = position_dodge(width = 0.75)) +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75), 
+              alpha = 0.5, color = "black") +
+  ylim(c(0,50))+
+  scale_fill_manual(
+    name = "Drug Type",  # Adding a title for the legend
+    values = c("0" = "#D3D3D3", "1" = "#696969"),  # Custom colors (optional)
+    labels = c("0" = "Biologic", "1" = "NCE")  # Custom labels for legend
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_text(size = 26),  # Adjust legend title size
+    legend.text = element_text(size = 26),  # Adjust legend text size
+    legend.position = "right",
+    panel.background = element_blank()  # Remove background panel
+  ) +
+  labs(x = "Expedited Pathway", y = "Number of Trials")
+
+print(p)
+ggsave("Numberoftrials_NCE_Biologic_expedited.jpg",p , dpi =300,width =12,height =10)
+
+setwd("C:/Users/parya/ScienceandIndustry Dropbox/Payal Arya/RESEARCH DOTD Clinical Trials/Working/Payal Arya/clinical_trial_preapproval/Data_analysis")
+ggsave("Numberoftrials_NCE_Biologic_expedited.jpg", p, dpi = 300, width = 12, height = 10)
+
+
+# Print the directory where the file is saved
+cat("File saved in:", getwd(), "\n")
+```
+
+```{r All categories number of trial table}
+library(dplyr)
+library(tibble)
+TrialsStartedandFinishedbeforeapproval_allcategories <- TrialsStartedandFinishedbeforeapproval_exp %>%
+  filter(!is.na(First_In_Class) & !(New_Phase == "Early Phase 1")) %>%
+  mutate(
+    NCE_1_Biologic_0 = recode(as.character(NCE_1_Biologic_0),
+                              "1" = "NCE",
+                              "0" = "Biologic"),
+    First_In_Class = recode(as.character(First_In_Class),
+                             "1" = "FIC",
+                             "0" = "Non FIC")
+  ) %>%
+  group_by(drugid, NCE_1_Biologic_0, Expedited_Group, First_In_Class, Orphan_0_1) %>%
+  summarise(Number_of_Trials = n(), .groups = "drop")
+
+# Create individual summaries by each variable
+fic_summary <- TrialsStartedandFinishedbeforeapproval_allcategories %>%
+  group_by(First_In_Class) %>%
+  summarise(
+    Unique_drugs = n_distinct(drugid),
+    Mean_Trial = mean(Number_of_Trials),
+    Median_Trial = median(Number_of_Trials),
+    IQR_Trial = IQR(Number_of_Trials),
+    CI95 = 1.96 * sd(Number_of_Trials) / sqrt(n())
+  ) %>%
+  rename(Category = First_In_Class)
+
+nce_summary <- TrialsStartedandFinishedbeforeapproval_allcategories %>%
+  group_by(NCE_1_Biologic_0) %>%
+  summarise(
+    Unique_drugs = n_distinct(drugid),
+    Mean_Trial = mean(Number_of_Trials),
+    Median_Trial = median(Number_of_Trials),
+    IQR_Trial = IQR(Number_of_Trials),
+    CI95 = 1.96 * sd(Number_of_Trials) / sqrt(n())
+  ) %>%
+  rename(Category = NCE_1_Biologic_0)
+
+orphan_summary <-  TrialsStartedandFinishedbeforeapproval_allcategories %>%
+  mutate(Orphan_Status = ifelse(Orphan_0_1 == 1, "Orphan", "NON Orphan")) %>%
+  group_by(Orphan_Status) %>%
+  summarise(
+    Unique_drugs = n_distinct(drugid),
+    Mean_Trial = mean(Number_of_Trials),
+    Median_Trial = median(Number_of_Trials),
+    IQR_Trial = IQR(Number_of_Trials),
+    CI95 = 1.96 * sd(Number_of_Trials) / sqrt(n())
+  ) %>%
+  rename(Category = Orphan_Status)
+
+expedited_summary <- TrialsStartedandFinishedbeforeapproval_allcategories %>%
+  group_by(Expedited_Group) %>%
+  summarise(
+    Unique_drugs = n_distinct(drugid),
+    Mean_Trial = mean(Number_of_Trials),
+    Median_Trial = median(Number_of_Trials),
+    IQR_Trial = IQR(Number_of_Trials),
+    CI95 = 1.96 * sd(Number_of_Trials) / sqrt(n()),
+    .groups = "drop"
+  ) %>%
+  mutate(Category = ifelse(Expedited_Group == "At Least One", "Expedited Designation", "Standard Designation")) %>%
+  dplyr::select(Category, Unique_drugs, Mean_Trial, Median_Trial, IQR_Trial, CI95)
+
+
+# Combine all summaries into one table
+final_table <- bind_rows(fic_summary, nce_summary, orphan_summary, expedited_summary)
+
+write.csv(final_table,"Allcategories_trials_table.csv",  row.names = FALSE)
+
+# Step 1: Calculate P-values
+Trials_w_pvals <- TrialsStartedandFinishedbeforeapproval_allcategories %>%
+  mutate(
+    Orphan_Status = ifelse(Orphan_0_1 == 1, "Orphan", "NON Orphan")
+  )
+
+p_fic <- wilcox.test(Number_of_Trials ~ First_In_Class, data = Trials_w_pvals)$p.value
+p_nce <- wilcox.test(Number_of_Trials ~ NCE_1_Biologic_0, data = Trials_w_pvals)$p.value
+p_orphan <- wilcox.test(Number_of_Trials ~ Orphan_Status, data = Trials_w_pvals)$p.value
+p_expedited <- wilcox.test(Number_of_Trials ~ Expedited_Group, data = Trials_w_pvals)$p.value
+
+# Step 2: Add p-values to final_table
+final_table <- final_table %>%
+  mutate(P_value = case_when(
+    Category %in% c("FIC", "Non FIC") ~ signif(p_fic, 3),
+    Category %in% c("NCE", "Biologic") ~ signif(p_nce, 3),
+    Category %in% c("Orphan", "NON Orphan") ~ signif(p_orphan, 3),
+    Category %in% c("Expedited Designation", "Standard Designation") ~ signif(p_expedited, 3),
+    TRUE ~ NA_real_
+  ))
+
+# Step 3: Save updated table
+print(final_table)
+ write.csv(final_table, "Allcategories_trials_table_with_pvals.csv", row.names = FALSE)
+
+
+```
+
+```{r}
+library(dplyr)
+
+TrialsStartedandFinishedbeforeapproval_allcategories <- TrialsStartedandFinishedbeforeapproval_exp %>%
+  filter(!is.na(First_In_Class) & !(New_Phase == "Early Phase 1")) %>%
+  mutate(
+    NCE_1_Biologic_0 = recode(as.character(NCE_1_Biologic_0),
+                              "1" = "NCE",
+                              "0" = "Biologic"),
+    First_In_Class = recode(as.character(First_In_Class),
+                             "1" = "FIC",
+                             "0" = "Non FIC")
+  ) %>%
+  group_by(drugid, Orphan_0_1, Expedited_Group) %>%
+  summarise(Number_of_Trials = n(), .groups = "drop")
+TrialsStartedandFinishedbeforeapproval_allcategories$Orphan_0_1 <- as.factor(
+  TrialsStartedandFinishedbeforeapproval_allcategories$Orphan_0_1)
+
+TrialsStartedandFinishedbeforeapproval_allcategories$Expedited_Group <- as.factor(
+  TrialsStartedandFinishedbeforeapproval_allcategories$Expedited_Group)
+TrialsStartedandFinishedbeforeapproval_allcategories$Orphan_0_1<- relevel(
+  TrialsStartedandFinishedbeforeapproval_allcategories$Orphan_0_1,
+  ref = "0"
+)
+TrialsStartedandFinishedbeforeapproval_allcategories$Expedited_Group <- relevel(
+ TrialsStartedandFinishedbeforeapproval_allcategories$Expedited_Group ,
+  ref = "None"
+)
+
+
+# Perform quantile regression at the 25th, 50th (median), and 75th percentiles
+model_50 <- rq(Number_of_Trials ~ Orphan_0_1 *Expedited_Group , tau = 0.50, data = TrialsStartedandFinishedbeforeapproval_allcategories)
+# Summarize results
+
+set.seed(1234);
+default_summary <- summary(model_50)
+bootstrap_summary <- summary(model_50, se = "boot", R = 10000)
+print(default_summary$coefficients)
+print(bootstrap_summary$coefficients)
+
+
+# Create a consistent designation label
+TrialsFormatted <- TrialsStartedandFinishedbeforeapproval_allcategories %>%
+  mutate(
+    Expedited_Status = ifelse(Expedited_Group == "At Least One", "Expedited", "Standard"),
+    Orphan_Status = ifelse(Orphan_0_1 == 1, "Orphan", "NON Orphan")
+  )
+
+# Function to create summaries for any category variable
+summarize_by_category <- function(df, category_var, label) {
+  df %>%
+    group_by(!!sym(category_var), Expedited_Status) %>%
+    summarise(
+      Unique_drugs = n_distinct(drugid),
+      Mean_Trial = mean(Number_of_Trials),
+      Median_Trial = median(Number_of_Trials),
+      IQR_Trial = IQR(Number_of_Trials),
+      CI95 = 1.96 * sd(Number_of_Trials) / sqrt(n()),
+      .groups = "drop"
+    ) %>%
+    rename(Category = !!sym(category_var)) %>%
+    mutate(Category = as.character(Category),
+           Label = label)
+}
+
+# Summarize by each category
+fic_table <- summarize_by_category(TrialsFormatted, "First_In_Class", "FIC")
+nce_table <- summarize_by_category(TrialsFormatted, "NCE_1_Biologic_0", "NCE")
+orphan_table <- summarize_by_category(TrialsFormatted, "Orphan_Status", "Orphan")
+
+# Bind all together and keep only relevant combinations
+final_designation_table <- bind_rows(fic_table, nce_table, orphan_table) %>%
+  mutate(Category = ifelse(Label == "FIC", Category,
+                    ifelse(Label == "NCE", Category,
+                    ifelse(Label == "Orphan", Category, NA)))) %>%
+  dplyr::select(Category, Expedited_Status, Unique_drugs, Mean_Trial, Median_Trial, IQR_Trial, CI95)
+
+# Optional: arrange for clean table
+final_designation_table <- final_designation_table %>%
+  arrange(factor(Category, levels = c("FIC", "Non FIC", "NCE", "Biologic", "Orphan", "NON Orphan")),
+          Expedited_Status)
+
+
+
+# Optional: write to CSV
+ write.csv(final_designation_table, "Category_by_Designation_Summary.csv", row.names = FALSE)
+
+```
+
+```{r}
+library(dplyr)
+library(quantreg)
+library(tibble)
+
+# Step 1: Clean and prepare data
+TrialsStartedandFinishedbeforeapproval_allcategories <- TrialsStartedandFinishedbeforeapproval_exp %>%
+  filter(!is.na(First_In_Class) & !(New_Phase == "Early Phase 1")) %>%
+  mutate(
+    
+    NCE_1_Biologic_0 = recode(as.character(NCE_1_Biologic_0), "1" = "NCE", "0" = "Biologic"),
+    First_In_Class = recode(as.character(First_In_Class), "1" = "FIC", "0" = "Non FIC"),
+    Orphan_Status = ifelse(Orphan_0_1 == 1, "Orphan", "NON Orphan")
+  ) %>%
+  group_by(drugid, NCE_1_Biologic_0, First_In_Class, Orphan_Status, Expedited_Group) %>%
+  summarise(Number_of_Trials = n(), .groups = "drop")
+
+# Step 2: Prepare final dataset with proper factor levels
+data <- TrialsStartedandFinishedbeforeapproval_allcategories %>%
+  mutate(
+    First_In_Class = factor(First_In_Class, levels = c("Non FIC", "FIC")),
+    NCE_1_Biologic_0 = factor(NCE_1_Biologic_0, levels = c("Biologic", "NCE")),
+    Orphan_Status = factor(Orphan_Status, levels = c("NON Orphan", "Orphan")),
+    Expedited_Group = factor(Expedited_Group, levels = c("None", "At Least One"))
+  )
+
+# Step 1: Define function to fit model and extract publication-ready table
+get_pub_table <- function(data, formula, term_map) {
+  model <- rq(formula = formula, tau = 0.5, data = data)
+  summary_boot <- summary(model, se = "boot", R = 10000)
+  coef_df <- as.data.frame(summary_boot$coefficients)
+  coef_df$Term <- rownames(coef_df)
+
+  # Filter out intercept and map human-readable labels
+  pub_table <- coef_df %>%
+    filter(Term != "(Intercept)") %>%
+    mutate(
+      Predictor = recode(Term, !!!term_map),
+      `Median Difference (Trials)` = round(Value, 2),
+      `95% CI (Bootstrap)` = paste0(
+        round(Value - 1.96 * `Std. Error`, 2),
+        " to ",
+        round(Value + 1.96 * `Std. Error`, 2)
+      ),
+      `P-value` = signif(`Pr(>|t|)`, 3)
+    ) %>%
+    dplyr::select(Predictor, `Median Difference (Trials)`, `95% CI (Bootstrap)`, `P-value`)
+
+  return(pub_table)
+}
+
+# Step 2: Ensure proper factor levels are set
+data <- data %>%
+  mutate(
+    First_In_Class = factor(First_In_Class, levels = c("Non FIC", "FIC")),
+    NCE_1_Biologic_0 = factor(NCE_1_Biologic_0, levels = c("Biologic", "NCE")),
+    Orphan_Status = factor(Orphan_Status, levels = c("NON Orphan", "Orphan")),
+    Expedited_Group = factor(Expedited_Group, levels = c("None", "At Least One"))
+  )
+
+# Step 3: Run for each model
+
+# 1. FIC vs Non FIC
+fic_table <- get_pub_table(
+  data,
+  Number_of_Trials ~ First_In_Class + Expedited_Group,
+  term_map = c(
+    "First_In_ClassFIC" = "FIC (vs Non FIC)",
+    "Expedited_GroupAt Least One" = "Expedited (vs Standard)"
+  )
+)
+
+# 2. NCE vs Biologic
+nce_table <- get_pub_table(
+  data,
+  Number_of_Trials ~ NCE_1_Biologic_0 + Expedited_Group,
+  term_map = c(
+    "NCE_1_Biologic_0NCE" = "NCE (vs Biologic)",
+    "Expedited_GroupAt Least One" = "Expedited (vs Standard)"
+  )
+)
+
+# 3. Orphan vs NON Orphan
+orphan_table <- get_pub_table(
+  data,
+  Number_of_Trials ~ Orphan_Status + Expedited_Group,
+  term_map = c(
+    "Orphan_StatusOrphan" = "Orphan (vs NON Orphan)",
+    "Expedited_GroupAt Least One" = "Expedited (vs Standard)"
+  )
+)
+
+# Step 4: Combine or export
+write.csv(fic_table, "FIC_vs_NonFIC_PublicationTable.csv", row.names = FALSE)
+write.csv(nce_table, "NCE_vs_Biologic_PublicationTable.csv", row.names = FALSE)
+write.csv(orphan_table, "Orphan_vs_NonOrphan_PublicationTable.csv", row.names = FALSE)
+
+
+```
+
+
+```{r}
+library(dplyr)
+
+# Step 1: Create drug-level trial count data with category and phase info
+TrialsGrouped <- TrialsStartedandFinishedbeforeapproval_exp %>%
+  filter(!is.na(First_In_Class) & !(New_Phase == "Early Phase 1")) %>%
+  mutate(
+    NCE_1_Biologic_0 = recode(as.character(NCE_1_Biologic_0), "1" = "NCE", "0" = "Biologic"),
+    First_In_Class = recode(as.character(First_In_Class), "1" = "FIC", "0" = "Non FIC"),
+    Orphan_Status = ifelse(Orphan_0_1 == 1, "Orphan", "NON Orphan")
+  ) %>%
+  group_by(drugid, New_Phase, First_In_Class, NCE_1_Biologic_0, Orphan_Status) %>%
+  summarise(Number_of_Trials = n(), .groups = "drop")
+
+# Step 2: Summarize stats by each category and New_Phase
+
+fic_table <- TrialsGrouped %>%
+  group_by(First_In_Class, New_Phase) %>%
+  summarise(
+    Unique_drugs = n_distinct(drugid),
+    Mean_Trial = mean(Number_of_Trials),
+    Median_Trial = median(Number_of_Trials),
+    IQR_Trial = IQR(Number_of_Trials),
+    CI95 = 1.96 * sd(Number_of_Trials) / sqrt(n()),
+    .groups = "drop"
+  ) %>%
+  rename(Category = First_In_Class)
+
+nce_table <- TrialsGrouped %>%
+  group_by(NCE_1_Biologic_0, New_Phase) %>%
+  summarise(
+    Unique_drugs = n_distinct(drugid),
+    Mean_Trial = mean(Number_of_Trials),
+    Median_Trial = median(Number_of_Trials),
+    IQR_Trial = IQR(Number_of_Trials),
+    CI95 = 1.96 * sd(Number_of_Trials) / sqrt(n()),
+    .groups = "drop"
+  ) %>%
+  rename(Category = NCE_1_Biologic_0)
+
+orphan_table <- TrialsGrouped %>%
+  group_by(Orphan_Status, New_Phase) %>%
+  summarise(
+    Unique_drugs = n_distinct(drugid),
+    Mean_Trial = mean(Number_of_Trials),
+    Median_Trial = median(Number_of_Trials),
+    IQR_Trial = IQR(Number_of_Trials),
+    CI95 = 1.96 * sd(Number_of_Trials) / sqrt(n()),
+    .groups = "drop"
+  ) %>%
+  rename(Category = Orphan_Status)
+
+# Step 3: Combine into final table
+final_phase_table <- bind_rows(fic_table, nce_table, orphan_table) %>%
+ dplyr:: select(Category, New_Phase, Unique_drugs, Mean_Trial, Median_Trial, IQR_Trial, CI95) %>%
+  arrange(factor(Category, levels = c("FIC", "Non FIC", "NCE", "Biologic", "Orphan", "NON Orphan")),
+          New_Phase)
+
+# View result
+print(final_phase_table)
+
+# Optional: write to CSV
+write.csv(final_phase_table, "Category_by_Phase_Summary.csv", row.names = FALSE)
+
+```
+
+
+
+```{r}
+# Step 1: Clean and prepare data
+TrialsStartedandFinishedbeforeapproval_allcategories_Phase <- TrialsStartedandFinishedbeforeapproval_exp %>%
+  filter(!is.na(First_In_Class) & !(New_Phase == "Early Phase 1")) %>%
+  mutate(
+    
+    NCE_1_Biologic_0 = recode(as.character(NCE_1_Biologic_0), "1" = "NCE", "0" = "Biologic"),
+    First_In_Class = recode(as.character(First_In_Class), "1" = "FIC", "0" = "Non FIC"),
+    Orphan_Status = ifelse(Orphan_0_1 == 1, "Orphan", "NON Orphan")
+  ) %>%
+  group_by(drugid, NCE_1_Biologic_0, First_In_Class, Orphan_Status, New_Phase) %>%
+  summarise(Number_of_Trials = n(), .groups = "drop")
+
+# Step 2: Prepare final dataset with proper factor levels
+data <- TrialsStartedandFinishedbeforeapproval_allcategories_Phase %>%
+  mutate(
+    First_In_Class = factor(First_In_Class, levels = c("Non FIC", "FIC")),
+    NCE_1_Biologic_0 = factor(NCE_1_Biologic_0, levels = c("Biologic", "NCE")),
+    Orphan_Status = factor(Orphan_Status, levels = c("NON Orphan", "Orphan")),
+    New_Phase = factor(New_Phase, levels = c("Phase 1", "Phase 2", "Phase 3"))
+  )
+
+# Step 1: Define function to fit model and extract publication-ready table
+get_pub_table <- function(data, formula, term_map) {
+  model <- rq(formula = formula, tau = 0.5, data = data)
+  summary_boot <- summary(model, se = "boot", R = 10000)
+  coef_df <- as.data.frame(summary_boot$coefficients)
+  coef_df$Term <- rownames(coef_df)
+
+  # Filter out intercept and map human-readable labels
+  pub_table <- coef_df %>%
+    filter(Term != "(Intercept)") %>%
+    mutate(
+      Predictor = recode(Term, !!!term_map),
+      `Median Difference (Trials)` = round(Value, 2),
+      `95% CI (Bootstrap)` = paste0(
+        round(Value - 1.96 * `Std. Error`, 2),
+        " to ",
+        round(Value + 1.96 * `Std. Error`, 2)
+      ),
+      `P-value` = signif(`Pr(>|t|)`, 3)
+    ) %>%
+    dplyr::select(Predictor, `Median Difference (Trials)`, `95% CI (Bootstrap)`, `P-value`)
+
+  return(pub_table)
+}
+
+# Step 2: Ensure proper factor levels are set
+data <- data %>%
+  mutate(
+    First_In_Class = factor(First_In_Class, levels = c("Non FIC", "FIC")),
+    NCE_1_Biologic_0 = factor(NCE_1_Biologic_0, levels = c("Biologic", "NCE")),
+    Orphan_Status = factor(Orphan_Status, levels = c("NON Orphan", "Orphan")),
+    New_Phase = factor(New_Phase, levels = c("Phase 1", "Phase 2", "Phase 3"))
+  )
+
+# Step 3: Run for each model
+
+# 1. FIC vs Non FIC
+fic_Phase_table <- get_pub_table(
+  data,
+  Number_of_Trials ~ First_In_Class + New_Phase,
+  term_map = c(
+    "First_In_ClassFIC" = "FIC (vs Non FIC)",
+    "Expedited_GroupAt Least One" = "Expedited (vs Standard)"
+  )
+)
+
+# 2. NCE vs Biologic
+nce_Phase_table <- get_pub_table(
+  data,
+  Number_of_Trials ~ NCE_1_Biologic_0 + New_Phase,
+  term_map = c(
+    "NCE_1_Biologic_0NCE" = "NCE (vs Biologic)",
+    "Expedited_GroupAt Least One" = "Expedited (vs Standard)"
+  )
+)
+
+# 3. Orphan vs NON Orphan
+orphan_Phase_table <- get_pub_table(
+  data,
+  Number_of_Trials ~ Orphan_Status + New_Phase,
+  term_map = c(
+    "Orphan_StatusOrphan" = "Orphan (vs NON Orphan)",
+    "Expedited_GroupAt Least One" = "Expedited (vs Standard)"
+  )
+)
+
+# Step 4: Combine or export
+write.csv(fic_Phase_table, "FIC_vs_NonFIC_PhaseTable.csv", row.names = FALSE)
+write.csv(nce_Phase_table, "NCE_vs_Biologic_PhaseTable.csv", row.names = FALSE)
+write.csv(orphan_Phase_table, "Orphan_vs_NonOrphan_PhaseTable.csv", row.names = FALSE)
+
+```
+
+```{r NCEvsBiologic & Expedited Group}
+TrialsStartedandFinishedbeforeapproval_NCE_Biologic_Phase_Exp <- TrialsStartedandFinishedbeforeapproval_exp %>%
+  
+  group_by(drugid,NCE_1_Biologic_0,Expedited_Group,New_Phase) %>%
+  summarise(
+    Number_of_Trials = n()
+  )%>%
+  mutate(
+    Molecule_Type = recode(as.character(NCE_1_Biologic_0),
+                           `1` = "NCE",
+                           `0` = "Biologic"))
+
+summary_stats_TrialsStartedandFinishedbeforeapproval_NCE_Biologic_Phase_Exp <- TrialsStartedandFinishedbeforeapproval_NCE_Biologic_Phase_Exp %>%
+  group_by(Molecule_Type, Expedited_Group, New_Phase) %>%
+  summarise(
+    total_trials = sum(Number_of_Trials),
+    Unique_Drugs = n_distinct(drugid),  # Count of unique drug IDs
+    Mean = mean(Number_of_Trials, na.rm = TRUE),
+    Median = median(Number_of_Trials, na.rm = TRUE),
+    IQR = IQR(Number_of_Trials, na.rm = TRUE),
+    Min = min(Number_of_Trials, na.rm = TRUE),
+    Max = max(Number_of_Trials, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+TrialsStartedandFinishedbeforeapproval_NCE_Biologic_Phase_Exp$Molecule_Type <- as.factor(
+  TrialsStartedandFinishedbeforeapproval_NCE_Biologic_Phase_Exp$Molecule_Type)
+
+TrialsStartedandFinishedbeforeapproval_NCE_Biologic_Phase_Exp$New_Phase <- as.factor(
+  TrialsStartedandFinishedbeforeapproval_NCE_Biologic_Phase_Exp$New_Phase)
+TrialsStartedandFinishedbeforeapproval_NCE_Biologic_Phase_Exp$New_Phase<- relevel(
+  TrialsStartedandFinishedbeforeapproval_NCE_Biologic_Phase_Exp$New_Phase,
+  ref = "Phase 1"
+)
+TrialsStartedandFinishedbeforeapproval_NCE_Biologic_Phase_Exp$Molecule_Type <- relevel(
+  TrialsStartedandFinishedbeforeapproval_NCE_Biologic_Phase_Exp$Molecule_Type,
+  ref = "Biologic"
+)
+
+# Set "None" as the reference group for Expedited_Group
+TrialsStartedandFinishedbeforeapproval_NCE_Biologic_Phase_Exp$Expedited_Group <- relevel(
+ TrialsStartedandFinishedbeforeapproval_NCE_Biologic_Phase_Exp$Expedited_Group,
+  ref = "None"
+)
+
+# Perform quantile regression at the 25th, 50th (median), and 75th percentiles
+model_50_Phase_Expedited_Group_NCE <- rq(Number_of_Trials ~ New_Phase + Expedited_Group + Molecule_Type , tau = 0.50, data = TrialsStartedandFinishedbeforeapproval_NCE_Biologic_Phase_Exp)
+
+model_50_Expedited_Group_NCE <- rq(Number_of_Trials ~  Expedited_Group *Molecule_Type , tau = 0.50, data = TrialsStartedandFinishedbeforeapproval_NCE_Biologic_Phase_Exp)
+
+
+model_50_Phase_NCE <- rq(Number_of_Trials ~ New_Phase  + Molecule_Type , tau = 0.50, data = TrialsStartedandFinishedbeforeapproval_NCE_Biologic_Phase_Exp)
+
+
+# Perform quantile regression at the 25th, 50th (median), and 75th percentiles
+model_50 <- rq(Number_of_Trials ~ New_Phase * Molecule_Type , tau = 0.50, data = TrialsStartedandFinishedbeforeapproval_NCE_Biologic_Phase_Exp)
+# Summarize results
+
+set.seed(1234);
+default_summary <- summary(model_50_Phase_Expedited_Group_NCE)
+bootstrap_summary <- summary(model_50_Phase_Expedited_Group_NCE, se = "boot", R = 10000)
+print(default_summary$coefficients)
+print(bootstrap_summary$coefficients)
+# Open a file connection
+sink("C:/Users/parya/ScienceandIndustry Dropbox/Payal Arya/RESEARCH DOTD Clinical Trials/Working/Payal Arya/clinical_trial_preapproval/Data_analysis/regressions_sumamry.txt")
+
+# Print summaries to the file
+cat("Default Summary:\n")
+print(default_summary)
+cat("\n\nBootstrapped Summary:\n")
+print(bootstrap_summary)
+
+# Close the file connection
+sink()
+
+summary_stats_TrialsStartedandFinishedbeforeapproval_NCE_Biologic_Phase <- TrialsStartedandFinishedbeforeapproval_NCE_Biologic_Phase_Exp %>%
+  group_by(Molecule_Type,New_Phase) %>%
+  summarise(
+    total_trials = sum(Number_of_Trials),
+    Unique_Drugs = n_distinct(drugid),  # Count of unique drug IDs
+    Mean = mean(Number_of_Trials, na.rm = TRUE),
+    Median = median(Number_of_Trials, na.rm = TRUE),
+    IQR = IQR(Number_of_Trials, na.rm = TRUE),
+    Min = min(Number_of_Trials, na.rm = TRUE),
+    Max = max(Number_of_Trials, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+Num_trials_NCE_biologic_Phase <- ggplot(TrialsStartedandFinishedbeforeapproval_NCE_Biologic_Phase_Exp, 
+            aes(x = New_Phase, 
+                y = Number_of_Trials, 
+                fill = Molecule_Type)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA, position = position_dodge(width = 0.75)) +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75), 
+              alpha = 0.5, color = "black") +
+  ylim(c(0, 50)) +
+  scale_fill_manual(
+    values = c("#D3D3D3", "#696969")
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),               # Remove x-axis title
+    axis.title.y = element_text(size = 24),       # Y-axis title formatting
+    axis.text.y = element_text(size = 24),
+    legend.title = element_text(size = 26),       # Legend title size
+    legend.text = element_text(size = 26),
+    legend.position = "right",
+    panel.background = element_blank()
+  ) +
+  labs(
+    y = "Number of Trials per Drug",             # Updated y-axis label
+    fill = "Drug Type"                        # Updated legend title
+  )
+
+print(Num_trials_NCE_biologic_Phase)
+ggsave("Num_trials_NCE_biologic_Phase.jpg",Num_trials_NCE_biologic_Phase , dpi =300,width =12,height =10)
+
+
+```
+
+
+
+```{r}
+TrialsStartedandFinishedbeforeapproval_FIC <- TrialsStartedandFinishedbeforeapproval_exp %>%
+  filter(!is.na(First_In_Class) & !(New_Phase== "Early Phase 1")) %>%
+  group_by(drugid,First_In_Class, Expedited_Group) %>%
+  summarise(
+    Number_of_Trials = n()
+  )
+
+# Step 2: Calculate summary statistics grouped by First_In_Class and Expedited_Group
+summary_stats_FIC <- TrialsStartedandFinishedbeforeapproval_FIC %>%
+  group_by(First_In_Class) %>%
+  summarise(
+    total_trials = sum(Number_of_Trials, na.rm = TRUE),
+    Unique_Drugs = n_distinct(drugid),  # Count of unique drug IDs
+    Mean = mean(Number_of_Trials, na.rm = TRUE),
+    Median = median(Number_of_Trials, na.rm = TRUE),
+    IQR = IQR(Number_of_Trials, na.rm = TRUE),
+    Min = min(Number_of_Trials, na.rm = TRUE),
+    Max = max(Number_of_Trials, na.rm = TRUE),
+    .groups = 'drop' # Ensures no unnecessary grouping in the output
+  )
+number_trials_FIC <- ggplot(
+  TrialsStartedandFinishedbeforeapproval_FIC,
+  aes(
+    x = as.factor(First_In_Class),
+    y = Number_of_Trials,
+    fill =as.factor(First_In_Class)
+  )
+) +
+  geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +
+  geom_jitter(
+    position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75),
+    size = 2,
+    alpha = 0.7,
+    color = "black"
+  ) +
+  ylim(0, 50) +scale_fill_manual(
+    name = "Drug Type",  # Adding a title for the legend
+    values = c("0" = "#D3D3D3", "1" = "#696969"),  # Custom colors (optional)
+    labels = c("0" = "Non FIC", "1" = "FIC")  # Custom labels for legend
+  )+
+  labs(
+    title = "Number of Trials by Therapeutic Area and Expedited Group",
+    x = "Therapeutic Area",
+    y = "Number of Trials",
+    fill = "Drug Type"
+  ) +
+  scale_fill_manual(values = c("#D3D3D3", "#696969")) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_blank(),
+    axis.text.x = element_text(angle = 65, hjust = 1, size = 26),
+    axis.text.y = element_text(size = 28),
+    axis.title = element_text(size = 28),
+    axis.ticks.x = element_blank(),
+    legend.title = element_text(size = 26),
+    legend.text = element_text(size = 26),
+    legend.position = "right"
+  )
+ggsave("number_trials_FIC.jpg", number_trials_FIC,width =10,height =8, dpi=300)
+
+TrialsStartedandFinishedbeforeapproval_FIC$First_In_Class <- as.factor(TrialsStartedandFinishedbeforeapproval_FIC$First_In_Class
+)
+TrialsStartedandFinishedbeforeapproval_FIC$Expedited_Group <- as.factor(TrialsStartedandFinishedbeforeapproval_FIC$Expedited_Group
+)
+TrialsStartedandFinishedbeforeapproval_FIC$First_In_Class <- relevel(TrialsStartedandFinishedbeforeapproval_FIC$First_In_Class,
+  ref = "0"
+)
+TrialsStartedandFinishedbeforeapproval_FIC$Expedited_Group <- relevel(TrialsStartedandFinishedbeforeapproval_FIC$Expedited_Group,
+  ref = "None"
+)
+model_50 <- rq(Number_of_Trials ~ First_In_Class * Expedited_Group  , tau = 0.50, data = TrialsStartedandFinishedbeforeapproval_FIC)
+
+set.seed(1234);
+bootstrap_summary <- summary(model_50, se = "boot", R = 10000);
+default_summary <- summary(model_50)
+print(default_summary)
+print(bootstrap_summary)
+```
+
+
+
+
+```{r regression for First in Class, Expedited Pathway, Phase}
+# Step 1: Summarize data grouped by drugid
+TrialsStartedandFinishedbeforeapproval_FIC <- TrialsStartedandFinishedbeforeapproval_exp %>%
+   filter(!is.na(First_In_Class) & !(New_Phase== "Early Phase 1")) %>%
+  group_by(drugid,First_In_Class,Expedited_Group, New_Phase) %>%
+  summarise(
+    Number_of_Trials = n()
+  )
+
+# Step 2: Calculate summary statistics grouped by First_In_Class and Expedited_Group
+summary_stats_FIC <- TrialsStartedandFinishedbeforeapproval_FIC %>%
+  group_by(First_In_Class, Expedited_Group, New_Phase) %>%
+  summarise(
+    total_trials = sum(Number_of_Trials, na.rm = TRUE),
+    Unique_Drugs = n_distinct(drugid),  # Count of unique drug IDs
+    Mean = mean(Number_of_Trials, na.rm = TRUE),
+    Median = median(Number_of_Trials, na.rm = TRUE),
+    IQR = IQR(Number_of_Trials, na.rm = TRUE),
+    Min = min(Number_of_Trials, na.rm = TRUE),
+    Max = max(Number_of_Trials, na.rm = TRUE),
+    .groups = 'drop' # Ensures no unnecessary grouping in the output
+  )
+
+# Creating the plot with grouped boxplots
+number_trials_FIC_expedited <- ggplot(TrialsStartedandFinishedbeforeapproval_FIC, 
+            aes(x = as.factor(Expedited_Group), 
+                y = Number_of_Trials, 
+                fill = as.factor(First_In_Class))) +
+  geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Grouped boxplots
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75), 
+          size = 2, alpha = 0.7) +  # Jitter points to show distribution
+  ylim(c(0,50))  +
+  scale_fill_manual(
+    name = "Drug Type",  # Adding a title for the legend
+    values = c("0" = "#D3D3D3", "1" = "#696969"),  # Custom colors (optional)
+    labels = c("0" = "Non FIC", "1" = "FIC")  # Custom labels for legend
+  )+
+  labs(
+    title = "Boxplot of Number of Trials by WHO Indication with NCE and Expedited Group",
+    x = "Expedited Group",
+    y = "Number of Trials",
+    fill = "First in Class"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_text(size = 26),  # Adjust legend title size
+    legend.text = element_text(size = 26),  # Adjust legend text size
+    legend.position = "right",
+    panel.background = element_blank()  # Remove background panel
+  )
+
+# Print the final plot
+number_trials_FIC_expedited
+
+ggsave("number_trials_FIC_expedited.jpg",number_trials_FIC_expedited, dpi =300,width =12,height =10)
+
+
+
+# Creating the plot with grouped boxplots
+number_trials_FIC <- ggplot(TrialsStartedandFinishedbeforeapproval_FIC, 
+            aes(x = as.factor(First_In_Class), 
+                y = Number_of_Trials)) +
+  geom_boxplot(outlier.shape = NA) +  # Simple boxplot
+  geom_jitter(position = position_jitter(width = 0.2), 
+              size = 2, alpha = 0.7) +  # Jitter points to show distribution
+  labs(
+    title = "Boxplot of Number of Trials by WHO Indication",
+    x = "First in class",
+    y = "Number of Trials"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels for clarity
+
+# Print the final plot
+number_trials_FIC
+# Set "None" as the reference group for Expedited_Group
+TrialsStartedandFinishedbeforeapproval_FIC$Expedited_Group <- relevel(TrialsStartedandFinishedbeforeapproval_FIC$Expedited_Group,
+  ref = "None"
+)
+TrialsStartedandFinishedbeforeapproval_FIC$First_In_Class <- relevel(TrialsStartedandFinishedbeforeapproval_FIC$First_In_Class,
+  ref = "0"
+)
+
+TrialsStartedandFinishedbeforeapproval_FIC$New_Phase<- relevel(TrialsStartedandFinishedbeforeapproval_FIC$New_Phase,
+  ref = "Phase 1"
+)
+model_50_FIC_Expedited_Phase <- rq(Number_of_Trials ~ First_In_Class + Expedited_Group + New_Phase, tau = 0.50, data = TrialsStartedandFinishedbeforeapproval_FIC)
+
+model_50 <- rq(Number_of_Trials ~  First_In_Class * Expedited_Group, tau = 0.50, data = TrialsStartedandFinishedbeforeapproval_FIC)
+
+set.seed(1234);
+bootstrap_summary <- summary(model_50_FIC_Expedited_Phase, se = "boot", R = 10000);
+default_summary <- summary(model_50_FIC_Expedited_Phase)
+print(default_summary)
+print(bootstrap_summary)
+
+# Open a file connection
+sink("C:/Users/parya/ScienceandIndustry Dropbox/Payal Arya/RESEARCH DOTD Clinical Trials/Working/Payal Arya/clinical_trial_preapproval/Data_analysis/FIC_regressions_summary.txt")
+
+# Print summaries to the file
+cat("Default Summary:\n")
+print(default_summary)
+cat("\n\nBootstrapped Summary:\n")
+print(bootstrap_summary)
+
+# Close the file connection
+sink()
+
+```
+
+```{r FIC trials by phase}
+# Step 1: Summarize data grouped by drugid
+TrialsStartedandFinishedbeforeapproval_FIC_phase <- TrialsStartedandFinishedbeforeapproval_exp %>%
+  filter(!is.na(First_In_Class) & !(New_Phase== "Early Phase 1")) %>%
+  group_by(drugid,New_Phase, First_In_Class) %>%
+  summarise(
+    Number_of_Trials = n()
+    )
+
+# Step 2: Calculate summary statistics grouped by First_In_Class and Expedited_Group
+summary_stats_FIC_Phase <- TrialsStartedandFinishedbeforeapproval_FIC_phase %>%
+  group_by(First_In_Class, New_Phase) %>%
+  summarise(
+    total_trials = sum(Number_of_Trials, na.rm = TRUE),
+    Unique_Drugs = n_distinct(drugid),  # Count of unique drug IDs
+    Mean = mean(Number_of_Trials, na.rm = TRUE),
+    Median = median(Number_of_Trials, na.rm = TRUE),
+    IQR = IQR(Number_of_Trials, na.rm = TRUE),
+    Min = min(Number_of_Trials, na.rm = TRUE),
+    Max = max(Number_of_Trials, na.rm = TRUE),
+    .groups = 'drop' # Ensures no unnecessary grouping in the output
+  )
+write.csv(summary_stats_FIC_Phase, "summary_stats_FIC_Phase.csv", row.names =FALSE)
+getwd()
+# Creating the plot with grouped boxplots
+number_trials_FIC_expedited_Phase <- ggplot(TrialsStartedandFinishedbeforeapproval_FIC_phase, 
+            aes(x = New_Phase, 
+                y = Number_of_Trials, 
+                fill = First_In_Class)) +
+  geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Grouped boxplots
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75), 
+          size = 2, alpha = 0.7) +  # Jitter points to show distribution
+  ylim(c(0,50))  +
+  scale_fill_manual(
+    name = "Drug Type",  # Adding a title for the legend
+    values = c("0" = "#D3D3D3", "1" = "#696969"),  # Custom colors (optional)
+    labels = c("0" = "Non FIC", "1" = "FIC")  # Custom labels for legend
+  )+
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),               # Remove x-axis title
+    axis.title.y = element_text(size = 24),       # Y-axis title formatting
+    axis.text.y = element_text(size = 24),
+    legend.title = element_text(size = 26),       # Legend title size
+    legend.text = element_text(size = 26),
+    legend.position = "right",
+    panel.background = element_blank()
+  ) +
+  labs(
+    y = "Number of Trials per Drug",             # Updated y-axis label
+    fill = "By Drug Type"                        # Updated legend title
+  )
+
+# Print the final plot
+number_trials_FIC_expedited_Phase
+
+#save the plot
+ggsave("number_trials_FIC_expedited_Phase.jpg",number_trials_FIC_expedited_Phase, dpi =300,width =14,height =10)
+
+getwd()
+#Regression to see if number of trials are different for the FIC vs NonFIC and Phase 
+
+#Quantile Regression for FIC and Phase 
+TrialsStartedandFinishedbeforeapproval_FIC_phase$First_In_Class <- relevel(TrialsStartedandFinishedbeforeapproval_FIC_phase$First_In_Class,
+  ref = "0"
+)
+TrialsStartedandFinishedbeforeapproval_FIC_phase$New_Phase <- relevel(TrialsStartedandFinishedbeforeapproval_FIC_phase$New_Phase,
+  ref = "Phase 1")
+model_50 <- rq(Number_of_Trials ~  First_In_Class * New_Phase, tau = 0.50, data = TrialsStartedandFinishedbeforeapproval_FIC_phase)
+
+model_50 <- rq(Number_of_Trials ~  First_In_Class +  New_Phase, tau = 0.50, data = TrialsStartedandFinishedbeforeapproval_FIC_phase)
+
+# Step 1: Summarize data grouped by drugid
+TrialsStartedandFinishedbeforeapproval_FIC_Exp_phase <- TrialsStartedandFinishedbeforeapproval_exp %>%
+  filter(!is.na(First_In_Class) & !(New_Phase== "Early Phase 1")) %>%
+  group_by(drugid,New_Phase, First_In_Class,Expedited_Group) %>%
+  summarise(
+    Number_of_Trials = n()
+    )
+model_50_FIC <- rq(Number_of_Trials ~  First_In_Class , tau = 0.50, data = TrialsStartedandFinishedbeforeapproval_FIC_Exp_phase )
+model_50_FIC_expedited <- rq(Number_of_Trials ~  First_In_Class + Expedited_Group, tau = 0.50, data = TrialsStartedandFinishedbeforeapproval_FIC_Exp_phase )
+model_50_FIC_Phase <- rq(Number_of_Trials ~  First_In_Class +  New_Phase , tau = 0.50, data = TrialsStartedandFinishedbeforeapproval_FIC_Exp_phase )
+
+model_50_FIC_Expedited+Phase <- rq(Number_of_Trials ~  First_In_Class +  New_Phase + Expedited_Group, tau = 0.50, data = TrialsStartedandFinishedbeforeapproval_FIC_Exp_phase )
+set.seed(1234);
+bootstrap_summary <- summary(model_50_FIC, se = "boot", R = 10000);
+default_summary <- summary(model_50_FIC)
+print(default_summary)
+print(bootstrap_summary)
+
+# Open a file connection
+sink("C:/Users/parya/ScienceandIndustry Dropbox/Payal Arya/RESEARCH DOTD Clinical Trials/Working/Payal Arya/clinical_trial_preapproval/Data_analysis/expeditedgroup_phase_regressions_summary.txt")
+
+# Print summaries to the file
+cat("Default Summary:\n")
+print(default_summary)
+cat("\n\nBootstrapped Summary:\n")
+print(bootstrap_summary)
+
+# Close the file connection
+sink()
+
+
+```
+
+```{r}
+# number of trials for expedited group and phase
+# Creating the plot with grouped boxplots
+number_trials_expedited_Phase <- ggplot(TrialsStartedandFinishedbeforeapproval_FIC, 
+            aes(x = as.factor(Phase), 
+                y = Number_of_Trials, 
+                fill = as.factor(Expedited_Group))) + 
+  geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Grouped boxplots
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75), 
+          size = 2, alpha = 0.7) +  # Jitter points to show distribution
+  ylim(c(0,50))  +
+  scale_fill_manual(
+    name = "Expedited group",  # Adding a title for the legend
+    values = c("At Least One" = "#D3D3D3", "None" = "#696969"),  # Custom colors (optional)
+  )+
+  labs(y = "Number of Trials",
+    fill = "Expedited Group"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_text(size = 26),  # Adjust legend title size
+    legend.text = element_text(size = 26),  # Adjust legend text size
+    legend.position = "right",
+    panel.background = element_blank()  # Remove background panel
+  )
+
+number_trials_expedited_Phase
+
+ggsave("number_trials_expedited_Phase.jpg",number_trials_expedited_Phase, dpi =300,width =14,height =10)
+
+TrialsStartedandFinishedbeforeapproval_exp_indication <- TrialsStartedandFinishedbeforeapproval_exp %>%
+  filter( !(New_Phase== "Early Phase 1")) %>%
+  group_by(drugid,New_Phase) %>%
+  summarise(
+    Number_of_Trials = n(),
+    Expedited_Group = first(Expedited_Group),
+    Phase = first(New_Phase),
+    Indication = first(WHOIndication)
+    )
+TrialsStartedandFinishedbeforeapproval_exp_indication$Expedited_Group <- as.factor(TrialsStartedandFinishedbeforeapproval_exp_indication$Expedited_Group)
+# Step 2: Calculate summary statistics grouped by First_In_Class and Expedited_Group
+summary_exp_inidcation <- TrialsStartedandFinishedbeforeapproval_exp_indication %>%
+  group_by(Expedited_Group,Indication) %>%
+  summarise(
+    total_trials = sum(Number_of_Trials, na.rm = TRUE),
+    Unique_Drugs = n_distinct(drugid),  # Count of unique drug IDs
+    Mean = mean(Number_of_Trials, na.rm = TRUE),
+    Median = median(Number_of_Trials, na.rm = TRUE),
+    IQR = IQR(Number_of_Trials, na.rm = TRUE),
+    Min = min(Number_of_Trials, na.rm = TRUE),
+    Max = max(Number_of_Trials, na.rm = TRUE),
+    .groups = 'drop' # Ensures no unnecessary grouping in the output
+  )
+# Create the stacked bar chart with text labels inside stacks
+Uniquedrugs_stcaked_plot <- summary_exp_inidcation %>%
+  ggplot(aes(x = reorder(Indication, Unique_Drugs), y = Unique_Drugs, fill = as.factor(Expedited_Group))) +
+  geom_bar(stat = "identity", position = "stack") +
+  geom_text(
+    aes(label = ifelse(Unique_Drugs >= 5, Unique_Drugs, "")),  # Show label only if value >= 5
+    position = position_stack(vjust = 0.5),  
+    size = 6,  
+    color = "black"  
+  ) +
+  labs(
+    title = "Unique Number of Drugs by WHO Indication and Expedited Status",
+    x = "Indication",
+    y = "Number of Unique Drugs",
+    fill = "Expedited Group"
+  ) +
+  scale_fill_manual(
+    values = c("None" = "#696969", "At Least One" =  "#D3D3D3")
+  ) +
+  theme_minimal() +
+  theme(axis.text.y = element_text( size = 20),
+    axis.text.x = element_text(angle = 75, hjust = 1, size = 20),  # Rotate x-axis labels for readability
+    axis.title = element_text(size = 24),
+    title = element_text(size = 20),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.title = element_text(size = 22),
+    legend.text = element_text(size = 22)
+  )
+
+Uniquedrugs_stcaked_plot
+
+ggsave("Uniquedrugs_stcaked_plot.jpg",Uniquedrugs_stcaked_plot, dpi =300,width =14,height =10)
+
+# Set "None" as the reference group for Expedited_Group
+TrialsStartedandFinishedbeforeapproval_FIC$Expedited_Group <- relevel(TrialsStartedandFinishedbeforeapproval_FIC$Expedited_Group,
+  ref = "None"
+)
+
+
+```
+
+
+
+```{r}
+TrialsStartedandFinishedbeforeapproval_therapeutic <- TrialsStartedandFinishedbeforeapproval_exp %>%
+  filter(!is.na(First_In_Class) & !(New_Phase== "Early Phase 1")) %>%
+  mutate(First_In_Class = case_when(
+      First_In_Class == 1 ~ "FIC",
+      First_In_Class == 0 ~ "NON-FIC")) %>%
+  group_by(drugid,New_Phase, First_In_Class, WHOIndication,Expedited_Group, NCE_1_Biologic_0) %>%
+  summarise(
+    Number_of_Trials = n()
+    )
+
+summary_stats_Exp_WHO <- TrialsStartedandFinishedbeforeapproval_therapeutic %>%
+  group_by(Expedited_Group,WHOIndication) %>%
+  summarise(
+    total_trials = sum(Number_of_Trials),
+    Unique_Drugs = n_distinct(drugid),  # Count of unique drug IDs
+    Mean = mean(Number_of_Trials, na.rm = TRUE),
+    Median = median(Number_of_Trials, na.rm = TRUE),
+    IQR = IQR(Number_of_Trials, na.rm = TRUE),
+    Min = min(Number_of_Trials, na.rm = TRUE),
+    Max = max(Number_of_Trials, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+
+number_trials_therapeutic_expedited <- ggplot(
+  TrialsStartedandFinishedbeforeapproval_therapeutic,
+  aes(
+    x = as.factor(WHOIndication),
+    y = Number_of_Trials,
+    fill = as.factor(Expedited_Group)
+  )
+) +
+  geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +
+  geom_jitter(
+    position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75),
+    size = 2,
+    alpha = 0.7,
+    color = "black"
+  ) +
+  ylim(0, 50) +
+  labs(
+    title = "Number of Trials by Therapeutic Area and Expedited Group",
+    x = "Therapeutic Area",
+    y = "Number of Trials",
+    fill = "Expedited Pathway"
+  ) +
+  scale_fill_manual(values = c("#D3D3D3", "#696969")) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_blank(),
+    axis.text.x = element_text(angle = 65, hjust = 1, size = 26),
+    axis.text.y = element_text(size = 28),
+    axis.title = element_text(size = 28),
+    axis.ticks.x = element_blank(),
+    legend.title = element_text(size = 26),
+    legend.text = element_text(size = 26),
+    legend.position = "right"
+  )
+
+# Print the plot
+print(number_trials_therapeutic_expedited)
+
+
+ggsave("Numberoftrials_therapeuticarea_expeditedgroup.jpg",number_trials_therapeutic_expedited, dpi =300,width =24,height =12)
+
+
+summary_stats_FIC_WHO <- TrialsStartedandFinishedbeforeapproval_therapeutic %>%
+  
+  group_by(First_In_Class,WHOIndication) %>%
+  summarise(
+    total_trials = sum(Number_of_Trials),
+    Unique_Drugs = n_distinct(drugid),  # Count of unique drug IDs
+    Mean = mean(Number_of_Trials, na.rm = TRUE),
+    Median = median(Number_of_Trials, na.rm = TRUE),
+    IQR = IQR(Number_of_Trials, na.rm = TRUE),
+    Min = min(Number_of_Trials, na.rm = TRUE),
+    Max = max(Number_of_Trials, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+
+number_trials_therapeutic_expedited <- ggplot(
+  TrialsStartedandFinishedbeforeapproval_therapeutic,
+  aes(
+    x = as.factor(WHOIndication),
+    y = Number_of_Trials,
+    fill = as.factor(First_In_Class)
+  )
+) +
+  geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +
+  geom_jitter(
+    position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75),
+    size = 2,
+    alpha = 0.7,
+    color = "black"
+  ) +
+  ylim(0, 50) +
+  labs(
+    title = "Number of Trials by Therapeutic Area and Expedited Group",
+    x = "Therapeutic Area",
+    y = "Number of Trials",
+    fill = "FIC vs NON FIC"
+  ) +
+  scale_fill_manual(values = c("#D3D3D3", "#696969")) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_blank(),
+    axis.text.x = element_text(angle = 65, hjust = 1, size = 26),
+    axis.text.y = element_text(size = 28),
+    axis.title = element_text(size = 28),
+    axis.ticks.x = element_blank(),
+    legend.title = element_text(size = 26),
+    legend.text = element_text(size = 26),
+    legend.position = "right"
+  )
+
+# Print the plot
+print(number_trials_therapeutic_expedited)
+
+
+
+
+
+# Creating the plot with grouped boxplots
+number_trials_therapeutic <- ggplot(TrialsStartedandFinishedbeforeapproval_therapeutic, 
+            aes(x = as.factor(WHOIndication), 
+                y = Number_of_Trials)) +
+  geom_boxplot(outlier.shape = NA) +  # Simple boxplot
+  geom_jitter(position = position_jitter(width = 0.2), 
+              size = 2, alpha = 0.7) +  # Jitter points to show distribution
+  ylim(c(0,50))+labs(
+    title = "Boxplot of Number of Trials by WHO Indication",
+    x = "WHO Indication",
+    y = "Number of Trials"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_text(size = 26),  # Adjust legend title size
+    legend.text = element_text(size = 26),  # Adjust legend text size
+    legend.position = "right",
+    panel.background = element_blank()  # Remove background panel
+  )
+
+# Print the final plot
+print(number_trials_therapeutic)
+
+ggsave("Numberoftrials_therapeuticarea.jpg",number_trials_therapeutic, dpi =300,width =18,height =12)
+
+getwd()
+```
+
+
+```{r}
+
+TrialsStartedandFinishedbeforeapproval_therapeutic <- TrialsStartedandFinishedbeforeapproval_exp %>%
+  filter(!is.na(First_In_Class) & !(New_Phase== "Early Phase 1")) %>%
+  mutate(First_In_Class = case_when(
+      First_In_Class == 1 ~ "FIC",
+      First_In_Class == 0 ~ "NON-FIC")) %>%
+  group_by(drugid,New_Phase, First_In_Class, WHOIndication,Expedited_Group, NCE_1_Biologic_0) %>%
+  summarise(
+    Number_of_Trials = n()
+    )
+
+# Step 2: Identify WHOIndications with at least 5 unique drugs per RFirst_In_Class
+valid_indications <- TrialsStartedandFinishedbeforeapproval_therapeutic%>%
+  group_by(WHOIndication, First_In_Class) %>%
+  summarise(n_drugs = n_distinct(drugid), .groups = "drop") %>%
+  pivot_wider(names_from = First_In_Class, values_from = n_drugs, values_fill = 0) %>%
+  filter(FIC >= 5 & 'NON-FIC' >= 5) %>%
+  pull(WHOIndication)
+# Step 3: Filter the data to include only valid WHOIndications
+regression_data <- TrialsStartedandFinishedbeforeapproval_therapeutic %>%
+  filter(WHOIndication %in% valid_indications)
+
+regression_data$First_In_Class<- as.factor(regression_data$First_In_Class
+)
+# Set "None" as the reference group for Expedited_Group
+regression_data$WHOIndication <- relevel(regression_data$WHOIndication,
+  ref = "Other"
+)
+regression_data$First_In_Class<- relevel(regression_data$First_In_Class,
+  ref = "NON-FIC"
+)
+model_50 <- rq(Number_of_Trials ~ WHOIndication + First_In_Class, tau = 0.50, data = 
+regression_data)
+
+
+#model_50 <- rq(Number_of_Trials ~ WHOIndication * First_In_Class, tau = 0.50, data = 
+#regression_data)
+
+set.seed(1234);
+bootstrap_summary <- summary(model_50, se = "boot", R = 10000);
+default_summary <- summary(model_50)
+print(default_summary)
+print(bootstrap_summary)
+
+# Open a file connection
+sink("C:/Users/parya/ScienceandIndustry Dropbox/Payal Arya/RESEARCH DOTD Clinical Trials/Working/Payal Arya/clinical_trial_preapproval/Data_analysis/therapeuticarearegressionsFIC_summary.txt")
+
+# Print summaries to the file
+cat("Default Summary:\n")
+print(default_summary)
+cat("\n\nBootstrapped Summary:\n")
+print(bootstrap_summary)
+
+# Close the file connection
+sink()
+```
+```{r}
+TrialsStartedandFinishedbeforeapproval_therapeutic <- TrialsStartedandFinishedbeforeapproval_exp %>%
+  filter(!is.na(First_In_Class) & !(New_Phase== "Early Phase 1")) %>%
+  mutate(NCE_1_Biologic_0 = case_when(
+      NCE_1_Biologic_0 == 1 ~ "NCE",
+      NCE_1_Biologic_0 == 0 ~ "Biologic")) %>%
+  group_by(drugid,New_Phase, First_In_Class, WHOIndication,Expedited_Group, NCE_1_Biologic_0) %>%
+  summarise(
+    Number_of_Trials = n()
+    )
+
+# Step 2: Identify WHOIndications with at least 5 unique drugs per RFirst_In_Class
+valid_indications <- TrialsStartedandFinishedbeforeapproval_therapeutic%>%
+  group_by(WHOIndication, NCE_1_Biologic_0) %>%
+  summarise(n_drugs = n_distinct(drugid), .groups = "drop") %>%
+  pivot_wider(names_from = NCE_1_Biologic_0, values_from = n_drugs, values_fill = 0) %>%
+  filter(NCE >= 5 & 'Biologic' >= 5) %>%
+  pull(WHOIndication)
+# Step 3: Filter the data to include only valid WHOIndications
+regression_data <- TrialsStartedandFinishedbeforeapproval_therapeutic %>%
+  filter(WHOIndication %in% valid_indications)
+
+regression_data$NCE_1_Biologic_0<- as.factor(regression_data$NCE_1_Biologic_0
+)
+# Set "None" as the reference group for Expedited_Group
+regression_data$WHOIndication <- relevel(regression_data$WHOIndication,
+  ref = "Other"
+)
+regression_data$NCE_1_Biologic_0<- relevel(regression_data$NCE_1_Biologic_0,
+  ref = "Biologic"
+)
+model_50 <- rq(Number_of_Trials ~ WHOIndication + NCE_1_Biologic_0, tau = 0.50, data = 
+regression_data)
+
+
+#model_50 <- rq(Number_of_Trials ~ WHOIndication * First_In_Class, tau = 0.50, data = 
+#regression_data)
+
+set.seed(1234);
+bootstrap_summary <- summary(model_50, se = "boot", R = 10000);
+default_summary <- summary(model_50)
+print(default_summary)
+print(bootstrap_summary)
+
+# Open a file connection
+sink("C:/Users/parya/ScienceandIndustry Dropbox/Payal Arya/RESEARCH DOTD Clinical Trials/Working/Payal Arya/clinical_trial_preapproval/Data_analysis/therapeuticarearegressionsNCE_summary.txt")
+
+# Print summaries to the file
+cat("Default Summary:\n")
+print(default_summary)
+cat("\n\nBootstrapped Summary:\n")
+print(bootstrap_summary)
+
+# Close the file connection
+sink()
+
+
+```
+
+
+```{r Quantile regression for number of trials and WHOIndication}
+
+TrialsStartedandFinishedbeforeapproval_therapeutic <- TrialsStartedandFinishedbeforeapproval_exp %>%
+  group_by(drugid) %>%
+  summarise(
+    Number_of_Trials = n(),
+    Expedited_Group = first(Expedited_Group),
+    WHOIndication = first(WHOIndication)
+  )
+
+table(TrialsStartedandFinishedbeforeapproval_therapeutic$Expedited_Group,TrialsStartedandFinishedbeforeapproval_therapeutic$WHOIndication)
+# Step 1: Summarize counts by WHOIndication and Expedited_Group
+drug_counts <- TrialsStartedandFinishedbeforeapproval_therapeutic %>%
+  group_by(WHOIndication, Expedited_Group) %>%
+  summarise(count = n(), .groups = "drop")
+
+# Step 2: Identify WHOIndication with non-zero counts for all Expedited_Group
+valid_conditions <- drug_counts %>%
+  group_by(WHOIndication) %>%
+  filter(all(count > 3)) %>%
+  summarise() %>% # Get unique WHOIndication
+  pull(WHOIndication)
+
+# Step 3: Filter the original dataset to include only valid WHOIndication
+filtered_data <- TrialsStartedandFinishedbeforeapproval_therapeutic %>%
+  filter(WHOIndication %in% valid_conditions)
+
+# Step 4: Verify the result
+table(filtered_data$Expedited_Group, filtered_data$WHOIndication)
+
+# Set "None" as the reference group for Expedited_Group
+filtered_data$Expedited_Group <- relevel(filtered_data$Expedited_Group,
+  ref = "None"
+)
+# Set "None" as the reference group for Expedited_Group
+filtered_data$WHOIndication <- relevel(filtered_data$WHOIndication,
+  ref = "Other"
+)
+filtered$NCE_1_Biologic_0 <- relevel(
+  TrialsStartedandFinishedbeforeapproval_therapeutic$NCE_1_Biologic_0,
+  ref = "0"
+)
+
+# Set "None" as the reference group for Expedited_Group
+TrialsStartedandFinishedbeforeapproval_therapeutic$Expedited_Group <- relevel(TrialsStartedandFinishedbeforeapproval_therapeutic$Expedited_Group,
+  ref = "None"
+)
+# Set "None" as the reference group for Expedited_Group
+TrialsStartedandFinishedbeforeapproval_therapeutic$WHOIndication <- relevel(TrialsStartedandFinishedbeforeapproval_therapeutic$WHOIndication,
+  ref = "Other"
+)
+model_50 <- rq(Number_of_Trials ~ WHOIndication + Expedited_Group, tau = 0.50, data = 
+TrialsStartedandFinishedbeforeapproval_therapeutic)
+
+model_50 <- rq(Number_of_Trials ~  WHOIndication * Expedited_Group, tau = 0.50, data = 
+TrialsStartedandFinishedbeforeapproval_therapeutic)
+
+set.seed(1234);
+bootstrap_summary <- summary(model_50, se = "boot", R = 10000);
+default_summary <- summary(model_50)
+print(default_summary)
+print(bootstrap_summary)
+
+# Open a file connection
+sink("C:/Users/parya/ScienceandIndustry Dropbox/Payal Arya/RESEARCH DOTD Clinical Trials/Working/Payal Arya/clinical_trial_preapproval/Data_analysis/therapeuticarearegressions_summary.txt")
+
+# Print summaries to the file
+cat("Default Summary:\n")
+print(default_summary)
+cat("\n\nBootstrapped Summary:\n")
+print(bootstrap_summary)
+
+# Close the file connection
+sink()
+
+```
+
+
+
+```{r}
+
+```
+
+
+
+```{r number of trials for Orphan drugs}
+
+
+TrialsStartedandFinishedbeforeapproval_Orphan<- TrialsStartedandFinishedbeforeapproval_exp %>%
+  filter(!New_Phase == "Early Phase 1") %>%
+  group_by(drugid,)%>%
+  summarise(
+    trialsperdrug = n(),
+    Expedited_Group = first(Expedited_Group),
+    Orphan = first(Orphan_0_1) # Ignore NA values
+  )
+# Convert the Orphan column to a factor
+TrialsStartedandFinishedbeforeapproval_Orphan$Orphan <- as.factor(TrialsStartedandFinishedbeforeapproval_Orphan$Orphan)
+
+#summarise by mean and median
+TrialsStartedandFinishedbeforeapproval_Orphan_summary <- TrialsStartedandFinishedbeforeapproval_Orphan %>%
+  group_by(Orphan, Expedited_Group) %>%
+  summarise(Total_Trials = sum(trialsperdrug),
+    Unique_Drugs = n_distinct(drugid),  # Count of unique drug IDs
+    Mean = mean(trialsperdrug, na.rm = TRUE),
+    Median = median(trialsperdrug, na.rm = TRUE),
+    IQR = IQR(trialsperdrug, na.rm = TRUE),
+    Min = min(trialsperdrug, na.rm = TRUE),
+    Max = max(trialsperdrug, na.rm = TRUE),
+    .groups = 'drop')
+
+
+# Creating the plot with grouped boxplots
+number_trials_Orphan_expedited <- ggplot(TrialsStartedandFinishedbeforeapproval_Orphan, 
+            aes(x = as.factor(Expedited_Group), 
+                y = trialsperdrug, 
+                fill = as.factor(Orphan))) +
+  geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Grouped boxplots
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75), 
+          size = 2, alpha = 0.7) +  # Jitter points to show distribution
+  ylim(c(0,50))  +
+  scale_fill_manual(
+    name = "Drug Type",  # Adding a title for the legend
+    values = c("0" = "#D3D3D3", "1" = "#696969"),  # Custom colors (optional)
+    labels = c("0" = "Non Orphan", "1" = "Orphan")  # Custom labels for legend
+  )+
+  labs(
+    title = "Boxplot of Number of Trials by WHO Indication with NCE and Expedited Group",
+    x = "Expedited Group",
+    y = "Number of Trials",
+    fill = "Orphan"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_text(size = 26),  # Adjust legend title size
+    legend.text = element_text(size = 26),  # Adjust legend text size
+    legend.position = "right",
+    panel.background = element_blank()  # Remove background panel
+  )
+
+# Print the final plot
+number_trials_Orphan_expedited
+
+ggsave("number_trials_Orphan_expedited.jpg",number_trials_Orphan_expedited, dpi =300,width =12,height =10)
+
+
+#quantile Regression 
+
+TrialsStartedandFinishedbeforeapproval_Orphan$Expedited_Group <- relevel(TrialsStartedandFinishedbeforeapproval_Orphan$Expedited_Group,
+  ref = "None"
+)
+TrialsStartedandFinishedbeforeapproval_Orphan$Orphan <- relevel(TrialsStartedandFinishedbeforeapproval_Orphan$Orphan,
+  ref = "0"
+)
+model_50 <- rq(trialsperdrug ~ Orphan + Expedited_Group, tau = 0.50, data = TrialsStartedandFinishedbeforeapproval_Orphan)
+
+model_50 <- rq(trialsperdrug ~  Orphan * Expedited_Group, tau = 0.50, data = TrialsStartedandFinishedbeforeapproval_Orphan)
+
+set.seed(1234);
+bootstrap_summary <- summary(model_50, se = "boot", R = 10000);
+default_summary <- summary(model_50)
+print(default_summary)
+print(bootstrap_summary)
+
+# Open a file connection
+sink("C:/Users/parya/ScienceandIndustry Dropbox/Payal Arya/RESEARCH DOTD Clinical Trials/Working/Payal Arya/clinical_trial_preapproval/Data_analysis/Orphan_regressions_summary.txt")
+
+# Print summaries to the file
+cat("Default Summary:\n")
+print(default_summary)
+cat("\n\nBootstrapped Summary:\n")
+print(bootstrap_summary)
+
+# Close the file connection
+sink()
+
+```
+
+```{r number of drugs for orphan status and the therapeutic class}
+Orphandrugs_count <- TrialsStartedandFinishedbeforeapproval %>%
+  group_by(drugid, Orphan_0_1, WHOIndication) %>%  # Include WHOIndication in grouping
+  summarise(
+    trialsperdrug = n(),
+    .groups = 'drop'
+  )
+
+Orphandrugs_summary <- Orphandrugs_count %>%
+  group_by(Orphan_0_1, WHOIndication) %>%  # Group by Orphan status and WHOIndication
+  summarise(
+    Total_Trials = sum(trialsperdrug),
+    Unique_Drugs = n_distinct(drugid),  # Count of unique drug IDs per indication
+    Mean = mean(trialsperdrug, na.rm = TRUE),
+    Median = median(trialsperdrug, na.rm = TRUE),
+    IQR = IQR(trialsperdrug, na.rm = TRUE),
+    Min = min(trialsperdrug, na.rm = TRUE),
+    Max = max(trialsperdrug, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+# Optional: Display the summary filtered for orphan drugs (Orphan_0_1 == 1)
+Orphandrugs_summary_orphan <- Orphandrugs_summary %>%
+  filter(Orphan_0_1 == 1)
+
+# View the results
+print(Orphandrugs_summary_orphan)
+
+library(ggplot2)
+
+# Create a bar chart to visualize Total_Trials for each WHOIndication for orphan drugs
+Orphandrugs_summary_orphan %>%
+  ggplot(aes(x = reorder(WHOIndication, Total_Trials), y = Total_Trials, fill = WHOIndication)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  labs(
+    title = "Total Trials for Orphan Drugs by WHO Indication",
+    x = "WHO Indication",
+    y = "Total Trials"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10),  # Rotate x-axis labels for readability
+    axis.title = element_text(size = 14),
+    title = element_text(size = 16),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+library(ggplot2)
+
+# Create a stacked bar chart
+Orphandrugs_summary %>%
+  ggplot(aes(x = reorder(WHOIndication, Total_Trials), y = Total_Trials, fill = as.factor(Orphan_0_1))) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(
+    title = "Total Trials by WHO Indication for Orphan and Non-Orphan Drugs",
+    x = "WHO Indication",
+    y = "Total Trials",
+    fill = "Orphan Status"
+  ) +
+  scale_fill_manual(
+    values = c("0" = "#90EE90", "1" = "#ADD8E6"),  # Light green for non-orphan, light blue for orphan
+    labels = c("Non-Orphan", "Orphan")  # Custom labels for the legend
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10),  # Rotate x-axis labels for readability
+    axis.title = element_text(size = 14),
+    title = element_text(size = 16),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.title = element_text(size = 12),
+    legend.text = element_text(size = 10)
+  )
+
+
+# Create the stacked bar chart with text labels inside stacks
+orphan_stcaked_plot <- Orphandrugs_summary %>%
+  ggplot(aes(x = reorder(WHOIndication, Unique_Drugs), y = Unique_Drugs, fill = as.factor(Orphan_0_1))) +
+  geom_bar(stat = "identity", position = "stack") +
+  geom_text(
+    aes(label = Unique_Drugs),
+    position = position_stack(vjust = 0.5),  # Position labels in the middle of each stack
+    size = 7,  # Adjust text size
+    color = "black"  # Text color
+  ) +
+  labs(
+    title = "Unique Number of Drugs by WHO Indication and Orphan Status",
+    x = "WHO Indication",
+    y = "Number of Unique Drugs",
+    fill = "Orphan Status"
+  ) +
+  scale_fill_manual(
+    values = c("0" = "#90EE90", "1" = "#ADD8E6"),  # Light green for non-orphan, light blue for orphan
+    labels = c("Non-Orphan", "Orphan")  # Custom labels for the legend
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 65, hjust = 1, size = 24),  # Rotate x-axis labels for readability
+    axis.title = element_text(size = 24),
+    title = element_text(size = 20),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.title = element_text(size = 22),
+    legend.text = element_text(size = 22)
+  )
+
+
+ggsave("orphan_stcaked_plot.jpg", orphan_stcaked_plot, width =20, height =12,dpi =300)
+```
+```{r Quantile regression without orphan drugs}
+
+Orphanfiltered_count <- TrialsStartedandFinishedbeforeapproval_exp %>%
+  filter(!Orphan_0_1 == "1") %>%
+  group_by(drugid,Expedited_Group,NCE_1_Biologic_0) %>%  # Include WHOIndication in grouping
+  summarise(
+    trialsperdrug = n(),
+    Expedited_Group = first(Expedited_Group),
+    NCE_biologic = first(NCE_1_Biologic_0), # Ignore NA values
+    .groups = 'drop'
+  )
+
+Orphanfiltered_summary <- Orphanfiltered_count %>%
+  group_by(Expedited_Group, NCE_biologic) %>%  # Group by Orphan status and WHOIndication
+  summarise(
+    Total_Trials = sum(trialsperdrug),
+    Unique_Drugs = n_distinct(drugid),  # Count of unique drug IDs per indication
+    Mean = mean(trialsperdrug, na.rm = TRUE),
+    Median = median(trialsperdrug, na.rm = TRUE),
+    IQR = IQR(trialsperdrug, na.rm = TRUE),
+    Min = min(trialsperdrug, na.rm = TRUE),
+    Max = max(trialsperdrug, na.rm = TRUE),
+    .groups = 'drop'
+  )
+# Creating the plot with grouped boxplots
+number_trials_nonOrphan_expedited <- ggplot(Orphanfiltered_count, 
+            aes(x = as.factor(Expedited_Group), 
+                y = trialsperdrug, 
+                fill = as.factor(NCE_biologic))) +
+  geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.75)) +  # Grouped boxplots
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.75), 
+          size = 2, alpha = 0.7) +  # Jitter points to show distribution
+  ylim(c(0,50))  +
+  scale_fill_manual(
+    name = "Drug Type",  # Adding a title for the legend
+    values = c("0" = "#D3D3D3", "1" = "#696969"),  # Custom colors (optional)
+    labels = c("0" = "Biologic", "1" = "NCE")  # Custom labels for legend
+  )+
+  labs(
+    title = "Boxplot of Number of Trials by WHO Indication with NCE and Expedited Group",
+    x = "Expedited Group",
+    y = "Number of Trials",
+    fill = "NCE vs Biologic"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_text(size = 26),  # Adjust legend title size
+    legend.text = element_text(size = 26),  # Adjust legend text size
+    legend.position = "right",
+    panel.background = element_blank()  # Remove background panel
+  )
+
+ggsave("number_trials_nonOrphan_expedited.jpg", number_trials_nonOrphan_expedited, dpi =300,width =12,height =10)
+Orphanfiltered_count$Expedited_Group <- relevel(Orphanfiltered_count$Expedited_Group,
+  ref = "None"
+)
+Orphanfiltered_count$NCE_biologic <- relevel(Orphanfiltered_count$NCE_biologic,
+  ref = "0"
+)
+model_50 <- rq(trialsperdrug ~ NCE_biologic + Expedited_Group, tau = 0.50, data = Orphanfiltered_count)
+
+model_50 <- rq(trialsperdrug ~  NCE_biologic * Expedited_Group, tau = 0.50, data = Orphanfiltered_count)
+
+set.seed(1234);
+bootstrap_summary <- summary(model_50, se = "boot", R = 10000);
+default_summary <- summary(model_50)
+print(default_summary)
+print(bootstrap_summary)
+
+# Open a file connection
+sink("C:/Users/parya/ScienceandIndustry Dropbox/Payal Arya/RESEARCH DOTD Clinical Trials/Working/Payal Arya/clinical_trial_preapproval/Data_analysis/Orphan_regressions_summary.txt")
+
+# Print summaries to the file
+cat("Default Summary:\n")
+print(default_summary)
+cat("\n\nBootstrapped Summary:\n")
+print(bootstrap_summary)
+
+# Close the file connection
+sink()
+
+
+
+Orphanfiltered_Therapeutic <- TrialsStartedandFinishedbeforeapproval_exp %>%
+  filter(!Orphan_0_1 == "1") %>%
+  group_by(drugid,WHOIndication, Expedited_Group,NCE_1_Biologic_0) %>%  # Include WHOIndication in grouping
+  summarise(
+    trialsperdrug = n(),
+    Expedited_Group = first(Expedited_Group),
+    NCE_biologic = first(NCE_1_Biologic_0), # Ignore NA values
+    Therapeutic = first(WHOIndication),
+    .groups = 'drop'
+  )
+Orphanfiltered_Therapeutic_summary <- Orphanfiltered_Therapeutic %>%
+  group_by(WHOIndication) %>%  # Group by Orphan status and WHOIndication
+  summarise(
+    Total_Trials = sum(trialsperdrug),
+    Unique_Drugs = n_distinct(drugid),  # Count of unique drug IDs per indication
+    Mean = mean(trialsperdrug, na.rm = TRUE),
+    Median = median(trialsperdrug, na.rm = TRUE),
+    IQR = IQR(trialsperdrug, na.rm = TRUE),
+    Min = min(trialsperdrug, na.rm = TRUE),
+    Max = max(trialsperdrug, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+Nonorphan_stacked_plot <- Orphanfiltered_Therapeutic_summary %>%
+  ggplot(aes(x = reorder(WHOIndication, Unique_Drugs), y = Unique_Drugs)) +
+  geom_bar(stat = "identity", position = "stack", fill = NA, color = "black", size = 1) +  # Empty bars with black outline
+  geom_text(
+    aes(label = Unique_Drugs),
+    position = position_stack(vjust = 0.5),  # Center labels inside bars
+    size = 7,  # Adjust text size
+    color = "black"  # Keep text black for readability
+  ) +
+  labs(
+    title = "Unique Number of Drugs by WHO Indication without Orphan Status",
+    x = "WHO Indication",
+    y = "Number of Unique Drugs"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 65, hjust = 1, size = 24),  # Rotate x-axis labels for readability
+    axis.title = element_text(size = 24),
+    plot.title = element_text(size = 20, face = "bold"),  # Fix title argument
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "none"  # Completely remove the legend
+  )
+
+
+ggsave("NOnorphan_drugsTherpeutics.jpg", Nonorphan_stacked_plot, width =20, height =12,dpi =300)
+```
+
+```{r}
+
+table(TrialsStartedandFinishedbeforeapproval_exp_summary[,c("Expedited_Group","NCE_1_Biologic_0")])
+boxplot(Number_of_Trials ~ NCE_1_Biologic_0 + Expedited_Group+ NCE_1_Biologic_0 * Expedited_Group, data= TrialsStartedandFinishedbeforeapproval_exp_summary)
+```
+
+
+```{r}
+Brandname<- c(
+  "Ozempic", "Rybelsus", "Wegovy", "Trelegy Ellipta", "Xtandi", 
+  "Pomalyst", "Ibrance", "Ofev", "Linzess", "Calquence", 
+  "Austedo", "Breo Ellipta", "Tradjenta", 
+  "Xifaxan", "Vraylar", "Janumet", "Otezla"
+)
+
+subsetdata <- clintrial_unique[clintrial_unique$BrandName %in% Brandname, ]
+
+num_trial <- subsetdata %>%
+  group_by(drugid, BrandName,New_Phase) %>%
+  summarise(trialsperdrug = n())
+
+summary_stats <- num_trial %>%
+  group_by(BrandName) %>%
+  summarise(
+    total_trials = sum(trialsperdrug, na.rm = TRUE),
+     Mean = mean(trialsperdrug, na.rm = TRUE),
+    Median = median(trialsperdrug, na.rm = TRUE),
+    IQR = IQR(trialsperdrug, na.rm = TRUE),
+    Min = min(trialsperdrug, na.rm = TRUE),
+    Max = max(trialsperdrug, na.rm = TRUE),
+    .groups = 'drop' # Ensures no unnecessary grouping in the output
+  )
+# Install the writexl package if not already installed
+if (!require(writexl)) install.packages("writexl")
+
+# Save the summary_stats dataframe to an Excel file
+library(writexl)
+
+
+# Write the dataframe to the Excel file
+write_xlsx(summary_stats, output_file)
+
+# Print confirmation
+cat("Summary statistics have been saved to", output_file, "\n")
+
+ggplot(num_trial, aes(x = BrandName, y = trialsperdrug)) +
+  geom_boxplot() +
+  labs(
+    title = "Number of Trials per Drug by Phase",
+    x = "Brand Name",
+    y = "Number of Trials"
+  ) +
+  theme_minimal()
+
+num_trial_CMSdrugs = ggplot(num_trial, aes(x = reorder(BrandName, trialsperdrug, FUN = median), y = trialsperdrug)) +
+  geom_boxplot() +
+  labs(
+    title = "Number of Trials per Drug",
+    x = "Brand Name (Ordered by Median Number of Trials)",
+    y = "Number of Trials"
+  ) +
+  theme_minimal() +
+   theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 24),
+    legend.title = element_text(size = 26),  # Adjust legend title size
+    legend.text = element_text(size = 26),  # Adjust legend text size
+    legend.position = "right",
+    panel.background = element_blank()  # Remove background panel
+  )
+
+ggsave("num_trial_CMSdrugs.jpg", num_trial_CMSdrugs, dpi =300, width =18, height =12)
+
+subsetdata <- TrialsStartedandFinishedbeforeapproval_exp[TrialsStartedandFinishedbeforeapproval_exp$BrandName %in% Brandname, ]
+num_trial <- subsetdata %>%
+  group_by(drugid, BrandName,New_Phase, Expedited_Group) %>%
+  summarise(trialsperdrug = n())
+
+summary_stats <- num_trial %>%
+  group_by(BrandName,New_Phase,Expedited_Group) %>%
+  summarise(
+    total_trials = sum(trialsperdrug, na.rm = TRUE),
+     Mean = mean(trialsperdrug, na.rm = TRUE),
+    Median = median(trialsperdrug, na.rm = TRUE),
+    IQR = IQR(trialsperdrug, na.rm = TRUE),
+    Min = min(trialsperdrug, na.rm = TRUE),
+    Max = max(trialsperdrug, na.rm = TRUE),
+    .groups = 'drop' # Ensures no unnecessary grouping in the output
+  )
+num_trial_CMSdrugs = ggplot(num_trial, aes(x = reorder(BrandName, trialsperdrug, FUN = median), y = trialsperdrug,fill = as.factor(Expedited_Group))) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Number of Trials per Drug",
+    x = "Brand Name (Ordered by Median Number of Trials)",
+    y = "Number of Trials"
+  ) +
+  theme_minimal() +
+   theme(
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    axis.title = element_text(size = 24),
+    axis.text.y = element_text(size = 26),
+    legend.title = element_text(size = 26),  # Adjust legend title size
+    legend.text = element_text(size = 26),  # Adjust legend text size
+    legend.position = "right",
+    panel.background = element_blank()  # Remove background panel
+  )
+num_trial_CMSdrugs
+
+# Create the stacked bar chart showing actual trials per drug
+num_trial_stacked <- ggplot(num_trial, 
+                            aes(x = reorder(BrandName, -trialsperdrug, FUN = sum),  # Arrange by total trials
+                                y = trialsperdrug, 
+                                fill = as.factor(New_Phase))) +
+  geom_bar(stat = "identity", position = "stack") +  # Stacked bar chart
+  geom_text(aes(label = round(trialsperdrug, 1)),  # Add text labels for actual trials
+            position = position_stack(vjust = 0.5), 
+            color = "black", 
+            size = 7) +
+  scale_fill_manual(
+    name = "Phase",
+    values = c("Phase 1" = "#FFA07A",  # Light orange
+               "Phase 2" = "#90EE90",  # Light green
+               "Phase 3" = "#ADD8E6")  # Light blue 
+  ) +
+  labs(
+    title = "Number of Trials per Drug by Phase",
+    x = "Brand Name (Ordered by Total Trials)",
+    y = "Number of Trials"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 22),
+    axis.title = element_text(size = 20),
+    title = element_text(size = 24),
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 20)
+  )
+
+# Render the plot
+num_trial_stacked
+
+
+ggsave("num_trial_stacked.jpg", num_trial_stacked, dpi =300, width =14,height =12)
+# Specify the output file path
+output_file <- "C:/Users/parya/ScienceandIndustry Dropbox/Payal Arya/RESEARCH DOTD Clinical Trials/Working/Payal Arya/clinical_trial_preapproval/Rscripts_folder/Summary_Stats.xlsx"
+
+# Write the dataframe to the Excel file
+write_xlsx(summary_stats, output_file)
+
+# Print confirmation
+cat("Summary statistics have been saved to", output_file, "\n")
+
+ggsave("num_trial_CMSdrugs.jpg", num_trial_CMSdrugs, dpi =300, width =18, height =12)
+```
+```{r CMS drugs and Phase information from Pharmaproject}
+
+PharmaProject <- read.csv("C:\\Users\\parya\\ScienceandIndustry Dropbox\\Payal Arya\\RESEARCH DOTD Clinical Trials\\Working\\Payal Arya\\PharmaProject 04_26_23 - Sorted Col.csv")
+
+Brandname<- c(
+  "Ozempic", "Rybelsus", "Wegovy", "Trelegy Ellipta", "Xtandi", 
+  "Pomalyst", "Ibrance", "Ofev", "Linzess", "Calquence", 
+  "Austedo", "Breo Ellipta", "Tradjenta", 
+  "Xifaxan", "Vraylar", "Janumet", "Otezla"
+)
+
+subsetdata <- PharmaProject[grepl(paste(Brandname, collapse = "|"), PharmaProject$drugNames), ]
+
+library(dplyr)
+library(lubridate)
+library(stringr)
+# Define the list of brand names
+Brandname <- c(
+  "Ozempic", "Rybelsus", "Wegovy", "Trelegy Ellipta", "Xtandi", 
+  "Pomalyst", "Ibrance", "Ofev", "Linzess", "Calquence", 
+  "Austedo", "Breo Ellipta", "Tradjenta", 
+  "Xifaxan", "Vraylar", "Janumet", "Otezla"
+)
+
+
+# Filter dataset and match drugNames with Brandname
+subsetdata <- PharmaProject %>%
+  filter(grepl(paste(Brandname, collapse = "|"), drugNames, ignore.case = TRUE)) %>%
+  dplyr::select(drugNames, p1StartDte, p2StartDte, p3StartDte, originatorName, originatorParentName, originatorStatus) %>%
+  mutate(
+    Brandname = sapply(drugNames, function(name) {
+      match <- Brandname[str_detect(name, fixed(Brandname, ignore_case = TRUE))]
+      if (length(match) > 0) return(match[1]) else return(NA)
+    })
+  )
+
+
+library(dplyr)
+library(lubridate)
+library(stringr)
+
+# Define the list of brand names
+Brandname <- c(
+  "Ozempic","Trelegy Ellipta", "Xtandi", 
+  "Pomalyst", "Ibrance", "Ofev", "Linzess", "Calquence", 
+  "Austedo", "Breo Ellipta", "Tradjenta", 
+  "Xifaxan", "Vraylar", "Janumet", "Otezla", "Enbrel", "Novolog",
+  "Januvia", "Stelara", "Xarelto", "Eliquis", "Imbruvica", "Jardiance", "Farxiga", "Entresto"
+  )
+
+Approval_year <- C("2017","2017", "2012", "2013", "2015", "2014","2012","2017","2017","2013","2011","2010","2015","2007","2014",
+                   "1998","2017", "2006","2009", "2011", "2012", "2013","2014","2014","2015")
+
+# Function to convert decimal year to date, handling missing values
+convert_decimal_year <- function(decimal_year) {
+  decimal_year <- suppressWarnings(as.numeric(decimal_year)) # Convert safely
+  if (is.na(decimal_year) || length(decimal_year) == 0) return(NA)  # Handle missing values
+  
+  year <- floor(decimal_year)  # Extract year
+  fraction <- decimal_year - year  # Extract fraction
+  days <- round(fraction * 365)  # Convert fraction to days
+  date <- as.Date(paste0(year, "-01-01")) + days  # Add days to January 1st
+  return(date)
+}
+
+# Step 1: Filter dataset and select relevant columns
+subsetdata <- PharmaProject %>%
+  filter(grepl(paste(Brandname, collapse = "|"), drugNames, ignore.case = TRUE)) %>%
+  dplyr::select(drugNames, p1StartDte, p2StartDte, p3StartDte, originatorName, originatorParentName, originatorStatus) %>%
+  rowwise() %>%  # Apply function row-wise to handle single values
+  mutate(
+    p1StartDte = convert_decimal_year(p1StartDte),
+    p2StartDte = convert_decimal_year(p2StartDte),
+    p3StartDte = convert_decimal_year(p3StartDte)
+  ) %>%
+  ungroup()  # Remove row-wise grouping
+
+# Step 2: Create Brandname column after processing
+subsetdata <- subsetdata %>%
+  mutate(
+    Brandname = sapply(drugNames, function(name) {
+      matches <- Brandname[str_detect(name, fixed(Brandname, ignore_case = TRUE))]
+      if (length(matches) > 0) paste(matches, collapse = "; ") else NA
+    })
+  )
+# Display the final dataset
+print(subsetdata)
+
+library(tidyr)
+library(purr)
+
+# Define the list of brand names and corresponding approval years
+Brandname <- c(
+  "Ozempic", "Trelegy Ellipta", "Xtandi", 
+  "Pomalyst", "Ibrance", "Ofev", "Linzess", "Calquence", 
+  "Austedo", "Breo Ellipta", "Tradjenta", 
+  "Xifaxan", "Vraylar", "Janumet", "Otezla", "Enbrel", "Novolog",
+  "Januvia", "Stelara", "Xarelto", "Eliquis", "Imbruvica", "Jardiance", "Farxiga", "Entresto"
+)
+
+Approval_year <- c(
+  2017, 2017, 2012, 2013, 2015, 2014, 2012, 2017, 2017, 2013, 2011, 2010, 
+  2015, 2007, 2014, 1998, 2017, 2006, 2009, 2011, 2012, 2013, 2014, 2014, 2015
+)
+
+# Create a lookup table for Brandname and Approval Year
+approval_lookup <- data.frame(Brandname, Approval_year, stringsAsFactors = FALSE)
+# Step 1: Filter dataset for specified drug names
+subsetdata <- PharmaProject %>%
+  filter(grepl(paste(Brandname, collapse = "|"), drugNames, ignore.case = TRUE)) %>%
+  select(drugNames, keyEventDates, keyEventDetails, originatorName)
+
+# Step 2: Split keyEventDates and keyEventDetails into lists
+subsetdata <- subsetdata %>%
+  mutate(
+    keyEventDates = strsplit(keyEventDates, "#"),
+    keyEventDetails = strsplit(keyEventDetails, "#")
+  )
+
+# Step 3: Function to ensure equal list lengths
+equalize_length <- function(list1, list2) {
+  max_len <- max(length(list1), length(list2))
+  list1 <- c(list1, rep(NA, max_len - length(list1)))
+  list2 <- c(list2, rep(NA, max_len - length(list2)))
+  return(data.frame(eventDate = list1, eventDetail = list2, stringsAsFactors = FALSE))
+}
+
+# Step 4: Apply function row-wise and unnest
+subsetdata <- subsetdata %>%
+  rowwise() %>%
+  mutate(events = list(equalize_length(keyEventDates, keyEventDetails))) %>%
+  select(-keyEventDates, -keyEventDetails) %>%  # Remove old columns to prevent duplication
+  unnest(events)  # Unnest the cleaned event data
+
+# Step 5: Convert eventDate to Date format
+subsetdata <- subsetdata %>%
+  mutate(eventDate = as.Date(eventDate, format = "%Y-%m-%d"))
+
+# Step 6: Extract the corresponding Brandname and Approval Year
+subsetdata <- subsetdata %>%
+  mutate(
+    Brandname = sapply(drugNames, function(name) {
+      matches <- Brandname[str_detect(name, fixed(Brandname, ignore_case = TRUE))]
+      if (length(matches) > 0) matches[1] else NA
+    })
+  ) %>%
+  left_join(approval_lookup, by = "Brandname")  # Add Approval Year
+
+# Step 7: Filter only rows where "Phase" is mentioned in eventDetail **AND** event happened before approval year
+subsetdata <- subsetdata %>%
+  filter(str_detect(eventDetail, "Phase") & year(eventDate) < Approval_year)
+
+# Step 8: Extract Phase information
+subsetdata <- subsetdata %>%
+  mutate(
+    Phase = case_when(
+      str_detect(eventDetail, "Phase I/II") ~ "Phase I/II",
+      str_detect(eventDetail, "Phase IIb") ~ "Phase IIb",
+      str_detect(eventDetail, "Phase IIa") ~ "Phase IIa",
+      str_detect(eventDetail, "Phase III") ~ "Phase III",
+      str_detect(eventDetail, "Phase II") ~ "Phase II",
+      str_detect(eventDetail, "Phase I") ~ "Phase I",
+      TRUE ~ NA_character_
+    )
+  )
+
+# Display the final dataset
+print(subsetdata)
+
+
+# Step 9: Find the first trial for each phase per drug, ensuring trials are before the approval year
+first_trials <- subsetdata %>%
+  filter(!is.na(Phase) & year(eventDate) < Approval_year) %>%  # Ensure Phase is not NA and eventDate is before approval
+  group_by(drugNames, Brandname, Phase, Approval_year) %>%
+  summarise(first_trial_date = min(eventDate, na.rm = TRUE), .groups = "drop") %>%
+  arrange(drugNames, first_trial_date)
+
+# Display the table
+print(first_trials)
+
+output_file <- "C:\\Users\\parya\\ScienceandIndustry Dropbox\\Payal Arya\\RESEARCH DOTD Clinical Trials\\Working\\Payal Arya\\IRA_2025\\firsttrials_pharmaproject.csv"
+
+# Write the dataframe to the Excel file
+write.csv(first_trials, output_file)
+
+```
+
+```{r}
+# Ensuring all date columns are correctly formatted before summarizing or imputing
+clintrial_Unique<- clintrial_unique %>%
+  mutate(
+    StartDate = as.Date(StartDate, format = "%Y-%m-%d"),
+    CompletionDate = as.Date(CompletionDate, format = "%Y-%m-%d"),
+    ApprovalDate = as.Date(ApprovalDate, format = "%Y-%m-%d")
+  )
+  
+#filter trials with missing StartDates
+clintrial_Unique <- clintrial_Unique %>%
+  filter(!is.na(StartDate)& !is.na(CompletionDate))
+
+CMS_trials <- clintrial_Unique %>%
+  filter(!CompletionDate > ApprovalDate) 
+
+subsetCMS_trials <- CMS_trials %>%
+  filter(BrandName %in% Brandname)
+  
+# Step: Find the first trial for each phase per drug before the approval date
+firsttrials_clintrialgov <- subsetCMS_trials %>%
+  filter(!is.na(New_Phase) & StartDate < ApprovalDate) %>%  # Ensure Phase is not NA and eventDate is before approval
+  group_by(BrandName, New_Phase) %>%  # Group only by BrandName and Phase
+  summarise(first_trial_date = min(StartDate, na.rm = TRUE), ApprovalDate = first(ApprovalDate), 
+            .groups = "drop") %>%  
+  arrange(BrandName, first_trial_date)  # Sort by BrandName and first trial date
+
+# Display the table
+print(firsttrials_clintrialgov)
+
+output_file <- "C:\\Users\\parya\\ScienceandIndustry Dropbox\\Payal Arya\\RESEARCH DOTD Clinical Trials\\Working\\Payal Arya\\IRA_2025\\firsttrials_clintrial.csv"
+
+# Write the dataframe to the Excel file
+write.csv(firsttrials_clintrialgov, output_file)
+
+
+```
+
+```{r time to approval for cms drugs}
+
+
+library(dplyr)
+
+# Ensure the dates are in Date format
+subsetdata <- subsetdata %>%
+  mutate(
+    StartDate = as.Date(StartDate, format = "%Y-%m-%d"),
+    ApprovalDate = as.Date(ApprovalDate, format = "%Y-%m-%d"),
+    CompletionDate = as.Date(CompletionDate, format = "%Y-%m-%d")
+  )
+
+# Find the first Phase 1 trial and calculate time to approval
+first_trial <- subsetdata %>%
+  filter(New_Phase == "Phase 1") %>%  # Filter for Phase 1 trials
+  group_by(drugid) %>%  # Group by drug
+  arrange(StartDate) %>%  # Arrange by StartDate in ascending order
+  slice(1) %>%  # Select the first trial per group
+  mutate(
+    Time_to_approval_Months = round(as.numeric(difftime(ApprovalDate, CompletionDate, units = "days") / 30.44)),
+    Time_to_approval_Years = round(as.numeric(difftime(ApprovalDate, CompletionDate, units = "days") / 365.25)))
+
+# View the results
+head(first_trial)
+
+
+```
+
